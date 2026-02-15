@@ -2,7 +2,7 @@
 
 use std::{marker::PhantomData, sync::Arc};
 
-use agent_client_protocol_schema::NewSessionRequest;
+use agent_client_protocol_schema::{LoadSessionRequest, NewSessionRequest};
 use futures::{StreamExt, channel::mpsc};
 use uuid::Uuid;
 
@@ -130,6 +130,13 @@ where
             crate::schema::McpServerHttp::new(self.connect.name(), self.acp_url.clone()),
         ));
     }
+
+    /// Modify the load session request to include this MCP server.
+    fn modify_load_session_request(&self, request: &mut LoadSessionRequest) {
+        request.mcp_servers.push(crate::schema::McpServer::Http(
+            crate::schema::McpServerHttp::new(self.connect.name(), self.acp_url.clone()),
+        ));
+    }
 }
 
 impl<Counterpart: Role> McpNewSessionHandler<Counterpart>
@@ -173,6 +180,17 @@ where
                 Client,
                 async |mut request: NewSessionRequest, responder| {
                     self.modify_new_session_request(&mut request);
+                    Ok(Handled::No {
+                        message: (request, responder),
+                        retry: false,
+                    })
+                },
+            )
+            .await
+            .if_request_from(
+                Client,
+                async |mut request: LoadSessionRequest, responder| {
+                    self.modify_load_session_request(&mut request);
                     Ok(Handled::No {
                         message: (request, responder),
                         retry: false,

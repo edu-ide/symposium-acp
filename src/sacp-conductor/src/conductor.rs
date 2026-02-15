@@ -125,7 +125,7 @@ use sacp::{
 };
 use sacp::{
     HandleDispatchFrom,
-    schema::{InitializeProxyRequest, InitializeRequest, NewSessionRequest},
+    schema::{InitializeProxyRequest, InitializeRequest, LoadSessionRequest, NewSessionRequest},
     util::MatchDispatchFrom,
 };
 use sacp::{
@@ -906,6 +906,26 @@ where
             .if_request(async |mut request: NewSessionRequest, responder| {
                 // When forwarding "session/new" to the agent,
                 // we adjust MCP servers to manage "acp:" URLs.
+                for mcp_server in &mut request.mcp_servers {
+                    self.bridge_listeners
+                        .transform_mcp_server(
+                            client_connection.clone(),
+                            mcp_server,
+                            &self.conductor_tx,
+                            &self.mcp_bridge_mode,
+                        )
+                        .await?;
+                }
+
+                agent_connection
+                    .send_request(request)
+                    .forward_response_to(responder)
+            })
+            .await
+            .if_request(async |mut request: LoadSessionRequest, responder| {
+                // When forwarding "session/load" to the agent,
+                // we also need to transform MCP servers with "acp:" URLs
+                // so that the agent can connect to them via TCP bridges.
                 for mcp_server in &mut request.mcp_servers {
                     self.bridge_listeners
                         .transform_mcp_server(

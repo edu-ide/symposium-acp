@@ -92,8 +92,8 @@ impl ElizaAgent {
     ) -> Result<(), sacp::Error> {
         tracing::debug!("Load session request: {:?}", request.session_id);
 
-        // For Eliza, we just create a fresh session with no MCP servers
-        self.create_session(&request.session_id, vec![]);
+        // Pass MCP servers from the request so tools are available on session resume
+        self.create_session(&request.session_id, request.mcp_servers);
 
         responder.respond(LoadSessionResponse::new())
     }

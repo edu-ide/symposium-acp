@@ -3321,6 +3321,7 @@ where
                 let mut bytes = line.into_bytes();
                 bytes.push(b'\n');
                 writer.write_all(&bytes).await?;
+                writer.flush().await?;
                 Ok::<_, std::io::Error>(writer)
             });
 
