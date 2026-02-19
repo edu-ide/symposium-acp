@@ -10,6 +10,7 @@ categories = ["development-tools"]
 
 [dependencies]
 sacp = { version = "11.0.0-alpha.1", path = "../sacp" }
+a2a-rs = { path = "../../../codex/codex-rs/a2a", default-features = false, features = ["client"] }
 futures.workspace = true
 
 serde.workspace = true
@@ -17,6 +18,9 @@ serde_json.workspace = true
 shell-words = "1.1"
 tokio.workspace = true
 tokio-util.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 
 [dev-dependencies]
 expect-test.workspace = true

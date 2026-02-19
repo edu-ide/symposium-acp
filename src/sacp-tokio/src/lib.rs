@@ -4,10 +4,14 @@
 //! that requires the Tokio async runtime, such as spawning agent processes
 //! and creating connections.
 
+mod a2a_agent;
 mod acp_agent;
+mod acp_http_agent;
 
+pub use a2a_agent::A2AAgent;
 pub use acp_agent::{AcpAgent, LineDirection};
-use sacp::{ByteStreams, Role, ConnectTo};
+pub use acp_http_agent::AcpHttpAgent;
+use sacp::{ByteStreams, ConnectTo, Role};
 use std::sync::Arc;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
@@ -38,7 +42,10 @@ impl Default for Stdio {
 }
 
 impl<Counterpart: Role> ConnectTo<Counterpart> for Stdio {
-    async fn connect_to(self, client: impl ConnectTo<Counterpart::Counterpart>) -> Result<(), sacp::Error> {
+    async fn connect_to(
+        self,
+        client: impl ConnectTo<Counterpart::Counterpart>,
+    ) -> Result<(), sacp::Error> {
         if let Some(callback) = self.debug_callback {
             use futures::AsyncBufReadExt;
             use futures::AsyncWriteExt;
@@ -73,8 +80,11 @@ impl<Counterpart: Role> ConnectTo<Counterpart> for Stdio {
             ))
                 as std::pin::Pin<Box<dyn futures::Sink<String, Error = std::io::Error> + Send>>;
 
-            ConnectTo::<Counterpart>::connect_to(sacp::Lines::new(outgoing_sink, incoming_lines), client)
-                .await
+            ConnectTo::<Counterpart>::connect_to(
+                sacp::Lines::new(outgoing_sink, incoming_lines),
+                client,
+            )
+            .await
         } else {
             // Without debug: use simple ByteStreams
             ConnectTo::<Counterpart>::connect_to(
