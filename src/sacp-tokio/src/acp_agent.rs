@@ -607,7 +607,7 @@ impl AcpAgentSession {
     /// 3. Creates a session (`session.new`)
     ///
     /// Returns **only after all three steps complete successfully**.
-    /// If any step fails, the error is returned immediately.
+    /// If any step fails or takes longer than 60 seconds, an error is returned.
     ///
     /// The returned `AcpAgentSession` holds the `ActiveSession` handle
     /// and a background task that keeps the connection alive. When the
@@ -615,6 +615,15 @@ impl AcpAgentSession {
     pub async fn connect(
         agent: impl sacp::ConnectTo<sacp::Client> + Send + 'static,
         cwd: impl AsRef<Path>,
+    ) -> Result<Self, sacp::Error> {
+        Self::connect_with_timeout(agent, cwd, std::time::Duration::from_secs(60)).await
+    }
+
+    /// Like [`connect`](Self::connect) but with a custom timeout.
+    pub async fn connect_with_timeout(
+        agent: impl sacp::ConnectTo<sacp::Client> + Send + 'static,
+        cwd: impl AsRef<Path>,
+        timeout: std::time::Duration,
     ) -> Result<Self, sacp::Error> {
         let cwd_buf = cwd.as_ref().to_path_buf();
 
@@ -652,16 +661,28 @@ impl AcpAgentSession {
             .await;
 
             // If we get here, connect_with returned (connection closed or error).
-            // If session_tx hasn't been consumed, send the error.
             result
         });
 
-        // Wait for the session to be established
-        let session = session_rx
-            .await
-            .map_err(|_| sacp::util::internal_error(
-                "Agent connection terminated before session was established",
-            ))??;
+        // Wait for the session to be established (with timeout)
+        let session = match tokio::time::timeout(timeout, session_rx).await {
+            Ok(Ok(result)) => result?,
+            Ok(Err(_)) => {
+                // oneshot dropped — connection task terminated before sending
+                connection_task.abort();
+                return Err(sacp::util::internal_error(
+                    "Agent connection terminated before session was established",
+                ));
+            }
+            Err(_) => {
+                // Timeout elapsed
+                connection_task.abort();
+                return Err(sacp::util::internal_error(format!(
+                    "Agent connection timed out after {}s",
+                    timeout.as_secs()
+                )));
+            }
+        };
 
         Ok(AcpAgentSession {
             session,
