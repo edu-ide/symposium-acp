@@ -4,12 +4,10 @@
 //! that requires the Tokio async runtime, such as spawning agent processes
 //! and creating connections.
 
-mod a2a_agent;
 mod acp_agent;
 mod acp_http_agent;
 
-pub use a2a_agent::A2AAgent;
-pub use acp_agent::{AcpAgent, LineDirection};
+pub use acp_agent::{AcpAgent, AcpAgentSession, LineDirection};
 pub use acp_http_agent::AcpHttpAgent;
 use sacp::{ByteStreams, ConnectTo, Role};
 use std::sync::Arc;

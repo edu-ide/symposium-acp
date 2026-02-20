@@ -565,3 +565,145 @@ mod tests {
         }
     }
 }
+
+// ============================================================================
+// AcpAgentSession — high-level session handle
+// ============================================================================
+
+use std::path::Path;
+
+/// A connected ACP agent session ready for prompt exchange.
+///
+/// Unlike `Client.connect_with(agent, |cx| ...)` which requires a closure
+/// that runs for the entire connection lifetime, `AcpAgentSession` separates
+/// connection establishment from session usage. The `connect` method blocks
+/// until the ACP session is fully established, then returns a handle with
+/// `send_prompt`/`read_update` methods.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use sacp_tokio::{AcpAgent, AcpAgentSession};
+/// use std::str::FromStr;
+///
+/// let agent = AcpAgent::from_str("npx -y @google/gemini-cli@latest --experimental-acp")?;
+/// let mut session = AcpAgentSession::connect(agent, ".").await?;
+/// session.send_prompt("What is 2 + 2?")?;
+/// let response = session.read_to_string().await?;
+/// println!("{}", response);
+/// ```
+pub struct AcpAgentSession {
+    session: sacp::ActiveSession<'static, sacp::Agent>,
+    /// Keeps the background connection task alive. When dropped, the task is aborted.
+    _connection_task: tokio::task::JoinHandle<Result<(), sacp::Error>>,
+}
+
+impl AcpAgentSession {
+    /// Connect to an ACP agent and establish a session.
+    ///
+    /// This method:
+    /// 1. Spawns the agent process (via `ConnectTo`)
+    /// 2. Performs the ACP handshake (`initialize`)
+    /// 3. Creates a session (`session.new`)
+    ///
+    /// Returns **only after all three steps complete successfully**.
+    /// If any step fails, the error is returned immediately.
+    ///
+    /// The returned `AcpAgentSession` holds the `ActiveSession` handle
+    /// and a background task that keeps the connection alive. When the
+    /// session is dropped, the connection is torn down.
+    pub async fn connect(
+        agent: impl sacp::ConnectTo<sacp::Client> + Send + 'static,
+        cwd: impl AsRef<Path>,
+    ) -> Result<Self, sacp::Error> {
+        let cwd_buf = cwd.as_ref().to_path_buf();
+
+        // Channel to extract the ActiveSession from inside connect_with
+        let (session_tx, session_rx) =
+            tokio::sync::oneshot::channel::<Result<sacp::ActiveSession<'static, sacp::Agent>, sacp::Error>>();
+
+        let connection_task = tokio::spawn(async move {
+            let result = sacp::Client.connect_with(agent, async move |cx| {
+                // Create a session and extract it
+                let session_result = cx
+                    .build_session(&cwd_buf)
+                    .block_task()
+                    .start_session()
+                    .await;
+
+                match session_result {
+                    Ok(session) => {
+                        // Send the session handle out to the caller
+                        if session_tx.send(Ok(session)).is_err() {
+                            // Caller dropped — nothing to do
+                            return Ok(());
+                        }
+                        // Keep this task alive indefinitely so the connection stays open.
+                        // The connection will be terminated when the JoinHandle is aborted.
+                        futures::future::pending::<()>().await;
+                        Ok(())
+                    }
+                    Err(e) => {
+                        let _ = session_tx.send(Err(e));
+                        Ok(())
+                    }
+                }
+            })
+            .await;
+
+            // If we get here, connect_with returned (connection closed or error).
+            // If session_tx hasn't been consumed, send the error.
+            result
+        });
+
+        // Wait for the session to be established
+        let session = session_rx
+            .await
+            .map_err(|_| sacp::util::internal_error(
+                "Agent connection terminated before session was established",
+            ))??;
+
+        Ok(AcpAgentSession {
+            session,
+            _connection_task: connection_task,
+        })
+    }
+
+    /// Send a prompt to the agent. You can then read streaming updates.
+    pub fn send_prompt(&mut self, prompt: &str) -> Result<(), sacp::Error> {
+        self.session.send_prompt(prompt)
+    }
+
+    /// Read an update from the agent in response to the prompt.
+    pub async fn read_update(&mut self) -> Result<sacp::SessionMessage, sacp::Error> {
+        self.session.read_update().await
+    }
+
+    /// Read all updates until the end of the turn and create a string.
+    pub async fn read_to_string(&mut self) -> Result<String, sacp::Error> {
+        self.session.read_to_string().await
+    }
+
+    /// Access the session ID.
+    pub fn session_id(&self) -> &sacp::schema::SessionId {
+        self.session.session_id()
+    }
+
+    /// Access the underlying active session.
+    pub fn active_session(&self) -> &sacp::ActiveSession<'static, sacp::Agent> {
+        &self.session
+    }
+
+    /// Access the underlying active session mutably.
+    pub fn active_session_mut(&mut self) -> &mut sacp::ActiveSession<'static, sacp::Agent> {
+        &mut self.session
+    }
+}
+
+impl Drop for AcpAgentSession {
+    fn drop(&mut self) {
+        // Abort the background connection task to clean up
+        self._connection_task.abort();
+    }
+}
+
