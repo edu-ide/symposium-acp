@@ -633,7 +633,14 @@ impl AcpAgentSession {
 
         let connection_task = tokio::spawn(async move {
             let result = sacp::Client.connect_with(agent, async move |cx| {
-                // Create a session and extract it
+                // Step 1: Initialize the ACP connection (REQUIRED before session creation)
+                cx.send_request(
+                    sacp::schema::InitializeRequest::new(sacp::schema::ProtocolVersion::LATEST),
+                )
+                .block_task()
+                .await?;
+
+                // Step 2: Create a session and extract it
                 let session_result = cx
                     .build_session(&cwd_buf)
                     .block_task()

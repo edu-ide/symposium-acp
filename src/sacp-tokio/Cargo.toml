@@ -10,7 +10,6 @@ categories = ["development-tools"]
 
 [dependencies]
 sacp = { version = "11.0.0-alpha.1", path = "../sacp" }
-a2a-rs = { path = "../../../codex/codex-rs/a2a", default-features = false, features = ["client"] }
 futures.workspace = true
 
 serde.workspace = true
@@ -26,3 +25,4 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 expect-test.workspace = true
 sacp-test = { path = "../sacp-test" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
