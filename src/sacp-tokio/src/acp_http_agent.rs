@@ -212,6 +212,11 @@ async fn listen_sse(
                                 }
                                 match serde_json::from_str::<sacp::jsonrpcmsg::Message>(json_str) {
                                     Ok(msg) => {
+                                        // Diagnostic: check if rawInput exists in raw SSE JSON
+                                        if json_str.contains("tool_call") && json_str.contains("toolCallId") {
+                                            let has_raw = json_str.contains("rawInput");
+                                            eprintln!("[SSE raw] tool_call hasRawInput={} len={}", has_raw, json_str.len());
+                                        }
                                         debug!("AcpHttpAgent ← SSE message");
                                         if tx.unbounded_send(Ok(msg)).is_err() {
                                             // Channel closed — exit
