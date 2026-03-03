@@ -225,15 +225,13 @@ async fn test_agent_handles_prompt() -> Result<(), sacp::Error> {
                 tracing::debug!(session_id = %session.session_id.0, "Session created");
 
                 // Send a prompt to call the echo tool via ElizACP's command syntax
-                let prompt_response = recv(
-                    connection_to_editor.send_request(PromptRequest::new(
-                        session.session_id.clone(),
-                        vec![ContentBlock::Text(TextContent::new(
+                let prompt_response = recv(connection_to_editor.send_request(PromptRequest::new(
+                    session.session_id.clone(),
+                    vec![ContentBlock::Text(TextContent::new(
                             r#"Use tool test::echo with {"message": "Hello from the test!"}"#
                                 .to_string(),
                         ))],
-                    )),
-                )
+                )))
                 .await?;
 
                 // Log the response

@@ -294,7 +294,7 @@ impl ElizaAgent {
         tool_name: &str,
         params_json: &str,
     ) -> Result<String> {
-        use rmcp::model::CallToolRequestParam;
+        use rmcp::model::CallToolRequestParams;
 
         // Parse params JSON
         let params = serde_json::from_str::<serde_json::Value>(params_json)
@@ -308,10 +308,10 @@ impl ElizaAgent {
 
             // Call the tool
             let tool_result = mcp_client
-                .call_tool(CallToolRequestParam {
-                    name: tool_name.into(),
-                    arguments: params_obj,
-                })
+                .call_tool(
+                    CallToolRequestParams::new(tool_name)
+                        .with_arguments(params_obj.unwrap_or_default()),
+                )
                 .await?;
 
             tracing::debug!("Tool call result: {:?}", tool_result);

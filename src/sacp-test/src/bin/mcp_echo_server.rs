@@ -50,18 +50,10 @@ impl EchoServer {
 #[tool_handler]
 impl ServerHandler for EchoServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            protocol_version: ProtocolVersion::V_2024_11_05,
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            server_info: Implementation {
-                name: "mcp-echo-server".to_string(),
-                version: "1.0.0".to_string(),
-                icons: None,
-                title: None,
-                website_url: None,
-            },
-            instructions: Some("A simple MCP server with an echo tool for testing".to_string()),
-        }
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new("mcp-echo-server", "1.0.0"))
+            .with_protocol_version(ProtocolVersion::V_2024_11_05)
+            .with_instructions("A simple MCP server with an echo tool for testing")
     }
 }
 
