@@ -94,6 +94,43 @@ where
     responder: Responder,
 }
 
+/// Shared handle to URI subscriptions.
+/// Clone this before building the server to observe which URIs clients have subscribed to.
+/// Use `is_subscribed(uri)` to check, then send `notifications/resources/updated` via the connection.
+#[derive(Clone, Default)]
+pub struct SubscriptionHandle {
+    inner: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+}
+
+impl SubscriptionHandle {
+    /// Check if a URI is currently subscribed.
+    pub fn is_subscribed(&self, uri: &str) -> bool {
+        self.inner.lock().map(|s| s.contains(uri)).unwrap_or(false)
+    }
+
+    /// Get all currently subscribed URIs.
+    pub fn subscribed_uris(&self) -> Vec<String> {
+        self.inner.lock().map(|s| s.iter().cloned().collect()).unwrap_or_default()
+    }
+
+    /// Check if any URI matching a prefix is subscribed.
+    pub fn has_subscriptions_with_prefix(&self, prefix: &str) -> bool {
+        self.inner.lock().map(|s| s.iter().any(|u| u.starts_with(prefix))).unwrap_or(false)
+    }
+
+    fn insert(&self, uri: String) {
+        if let Ok(mut s) = self.inner.lock() {
+            s.insert(uri);
+        }
+    }
+
+    fn remove(&self, uri: &str) {
+        if let Ok(mut s) = self.inner.lock() {
+            s.remove(uri);
+        }
+    }
+}
+
 struct McpServerData<Counterpart: Role> {
     instructions: Option<String>,
     tool_models: Vec<rmcp::model::Tool>,
@@ -107,8 +144,8 @@ struct McpServerData<Counterpart: Role> {
     template_models: Vec<ResourceTemplate>,
     /// Template read handlers keyed by URI template pattern
     template_handlers: FxHashMap<String, Arc<dyn ResourceHandler + Send + Sync>>,
-    /// URI subscriptions (URIs that clients have subscribed to)
-    subscriptions: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// URI subscriptions (shared handle for external access)
+    subscriptions: SubscriptionHandle,
     /// MCP Prompts (user-controlled reusable templates)
     prompt_models: Vec<Prompt>,
     /// Prompt handlers keyed by name
@@ -143,7 +180,7 @@ impl<Host: Role> Default for McpServerData<Host> {
             resource_handlers: FxHashMap::default(),
             template_models: Vec::new(),
             template_handlers: FxHashMap::default(),
-            subscriptions: std::sync::Mutex::new(std::collections::HashSet::new()),
+            subscriptions: SubscriptionHandle::default(),
             prompt_models: Vec::new(),
             prompt_handlers: FxHashMap::default(),
         }
@@ -169,6 +206,12 @@ where
     pub fn instructions(mut self, instructions: impl ToString) -> Self {
         self.data.instructions = Some(instructions.to_string());
         self
+    }
+
+    /// Get a cloneable handle to the subscription set.
+    /// Clone this BEFORE calling `.build()` to retain access to subscriptions.
+    pub fn subscription_handle(&self) -> SubscriptionHandle {
+        self.data.subscriptions.clone()
     }
 
     /// Add a tool to the server.
@@ -736,9 +779,7 @@ impl<R: Role> ServerHandler for McpServerConnection<R> {
         request: SubscribeRequestParams,
         _context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<(), ErrorData> {
-        if let Ok(mut subs) = self.data.subscriptions.lock() {
-            subs.insert(request.uri);
-        }
+        self.data.subscriptions.insert(request.uri);
         Ok(())
     }
 
@@ -747,9 +788,7 @@ impl<R: Role> ServerHandler for McpServerConnection<R> {
         request: UnsubscribeRequestParams,
         _context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<(), ErrorData> {
-        if let Ok(mut subs) = self.data.subscriptions.lock() {
-            subs.remove(&request.uri);
-        }
+        self.data.subscriptions.remove(&request.uri);
         Ok(())
     }
 
