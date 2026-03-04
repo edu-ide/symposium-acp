@@ -40,7 +40,13 @@ impl EnabledTools {
 use rmcp::{
     ErrorData, ServerHandler,
     handler::server::tool::{schema_for_output, schema_for_type},
-    model::{CallToolResult, ListToolsResult, Tool},
+    model::{
+        CallToolResult, ListToolsResult, Tool,
+        ListResourcesResult, ReadResourceResult, ReadResourceRequestParams,
+        Resource, RawResource, ResourceContents,
+        ListResourceTemplatesResult, ResourceTemplate, RawResourceTemplate,
+        SubscribeRequestParams, UnsubscribeRequestParams,
+    },
 };
 use schemars::JsonSchema;
 use serde::{Serialize, de::DeserializeOwned};
@@ -91,6 +97,21 @@ struct McpServerData<Counterpart: Role> {
     tool_models: Vec<rmcp::model::Tool>,
     tools: FxHashMap<String, RegisteredTool<Counterpart>>,
     enabled_tools: EnabledTools,
+    /// Static MCP resources
+    resource_models: Vec<Resource>,
+    /// Resource read handlers keyed by URI
+    resource_handlers: FxHashMap<String, Arc<dyn ResourceHandler + Send + Sync>>,
+    /// Resource templates (URI patterns like `ilhae://memory/{section}`)
+    template_models: Vec<ResourceTemplate>,
+    /// Template read handlers keyed by URI template pattern
+    template_handlers: FxHashMap<String, Arc<dyn ResourceHandler + Send + Sync>>,
+    /// URI subscriptions (URIs that clients have subscribed to)
+    subscriptions: std::sync::Mutex<std::collections::HashSet<String>>,
+}
+
+/// A resource read handler: given a URI, returns the text content.
+trait ResourceHandler: Send + Sync {
+    fn read<'a>(&'a self, uri: &'a str) -> BoxFuture<'a, Result<String, crate::Error>>;
 }
 
 /// A registered tool with its metadata.
@@ -107,6 +128,11 @@ impl<Host: Role> Default for McpServerData<Host> {
             tool_models: Vec::new(),
             tools: FxHashMap::default(),
             enabled_tools: EnabledTools::default(),
+            resource_models: Vec::new(),
+            resource_handlers: FxHashMap::default(),
+            template_models: Vec::new(),
+            template_handlers: FxHashMap::default(),
+            subscriptions: std::sync::Mutex::new(std::collections::HashSet::new()),
         }
     }
 }
@@ -325,6 +351,96 @@ where
         )
     }
 
+    /// Register a static MCP resource with a URI and text content provider.
+    ///
+    /// The `read_fn` is called when the client requests `resources/read` for this URI.
+    pub fn resource_fn<F, Fut>(
+        mut self,
+        uri: impl ToString,
+        name: impl ToString,
+        description: impl ToString,
+        mime_type: impl ToString,
+        read_fn: F,
+    ) -> Self
+    where
+        F: Fn(String) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Result<String, crate::Error>> + Send + 'static,
+    {
+        let uri_str = uri.to_string();
+        let raw = RawResource {
+            uri: uri_str.clone(),
+            name: name.to_string(),
+            title: None,
+            description: Some(description.to_string()),
+            mime_type: Some(mime_type.to_string()),
+            size: None,
+            icons: None,
+            meta: None,
+        };
+        self.data.resource_models.push(Resource::new(raw, None));
+
+        struct FnResourceHandler<F> {
+            func: F,
+        }
+        impl<F, Fut> ResourceHandler for FnResourceHandler<F>
+        where
+            F: Fn(String) -> Fut + Send + Sync + 'static,
+            Fut: std::future::Future<Output = Result<String, crate::Error>> + Send + 'static,
+        {
+            fn read<'a>(&'a self, uri: &'a str) -> BoxFuture<'a, Result<String, crate::Error>> {
+                Box::pin((self.func)(uri.to_string()))
+            }
+        }
+
+        self.data.resource_handlers.insert(
+            uri_str,
+            Arc::new(FnResourceHandler { func: read_fn }),
+        );
+        self
+    }
+
+    /// Register a resource template with a URI pattern (RFC 6570) and a read handler.
+    ///
+    /// The `read_fn` receives the expanded URI when `resources/read` is called.
+    /// Template matching: `ilhae://memory/{section}` matches `ilhae://memory/system`.
+    pub fn resource_template_fn<F, Fut>(
+        mut self,
+        uri_template: impl ToString,
+        name: impl ToString,
+        description: impl ToString,
+        mime_type: impl ToString,
+        read_fn: F,
+    ) -> Self
+    where
+        F: Fn(String) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Result<String, crate::Error>> + Send + 'static,
+    {
+        let tmpl_str = uri_template.to_string();
+        let raw = RawResourceTemplate::new(tmpl_str.clone(), name.to_string())
+            .with_description(description.to_string())
+            .with_mime_type(mime_type.to_string());
+        self.data.template_models.push(ResourceTemplate::new(raw, None));
+
+        struct FnResourceHandler<F> {
+            func: F,
+        }
+        impl<F, Fut> ResourceHandler for FnResourceHandler<F>
+        where
+            F: Fn(String) -> Fut + Send + Sync + 'static,
+            Fut: std::future::Future<Output = Result<String, crate::Error>> + Send + 'static,
+        {
+            fn read<'a>(&'a self, uri: &'a str) -> BoxFuture<'a, Result<String, crate::Error>> {
+                Box::pin((self.func)(uri.to_string()))
+            }
+        }
+
+        self.data.template_handlers.insert(
+            tmpl_str,
+            Arc::new(FnResourceHandler { func: read_fn }),
+        );
+        self
+    }
+
     /// Create an MCP server from this builder.
     ///
     /// This builder can be attached to new sessions (see [`SessionBuilder::with_mcp_server`](`crate::SessionBuilder::with_mcp_server`))
@@ -481,15 +597,114 @@ impl<R: Role> ServerHandler for McpServerConnection<R> {
         Ok(ListToolsResult::with_all_items(tools))
     }
 
+    async fn list_resources(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        Ok(ListResourcesResult {
+            resources: self.data.resource_models.clone(),
+            next_cursor: None,
+            meta: None,
+        })
+    }
+
+    async fn read_resource(
+        &self,
+        ReadResourceRequestParams { uri, .. }: ReadResourceRequestParams,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<ReadResourceResult, ErrorData> {
+        // 1. Try static resource handlers first
+        if let Some(handler) = self.data.resource_handlers.get(&uri) {
+            let text = handler.read(&uri).await.map_err(to_rmcp_error)?;
+            let mime = self.data.resource_models
+                .iter()
+                .find(|r| r.uri == uri)
+                .and_then(|r| r.mime_type.clone())
+                .unwrap_or_else(|| "text/plain".to_string());
+            return Ok(ReadResourceResult::new(vec![ResourceContents::TextResourceContents {
+                uri,
+                mime_type: Some(mime),
+                text,
+                meta: None,
+            }]));
+        }
+
+        // 2. Try template handlers (simple pattern matching: `{param}` → wildcard)
+        for (tmpl, handler) in &self.data.template_handlers {
+            if template_matches(tmpl, &uri) {
+                let text = handler.read(&uri).await.map_err(to_rmcp_error)?;
+                let mime = self.data.template_models
+                    .iter()
+                    .find(|t| template_matches(&t.uri_template, &uri))
+                    .and_then(|t| t.mime_type.clone())
+                    .unwrap_or_else(|| "text/plain".to_string());
+                return Ok(ReadResourceResult::new(vec![ResourceContents::TextResourceContents {
+                    uri,
+                    mime_type: Some(mime),
+                    text,
+                    meta: None,
+                }]));
+            }
+        }
+
+        Err(ErrorData::invalid_params(
+            format!("resource `{}` not found", uri),
+            None,
+        ))
+    }
+
+    async fn list_resource_templates(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<ListResourceTemplatesResult, ErrorData> {
+        Ok(ListResourceTemplatesResult {
+            resource_templates: self.data.template_models.clone(),
+            next_cursor: None,
+            meta: None,
+        })
+    }
+
+    async fn subscribe(
+        &self,
+        request: SubscribeRequestParams,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<(), ErrorData> {
+        if let Ok(mut subs) = self.data.subscriptions.lock() {
+            subs.insert(request.uri);
+        }
+        Ok(())
+    }
+
+    async fn unsubscribe(
+        &self,
+        request: UnsubscribeRequestParams,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<(), ErrorData> {
+        if let Ok(mut subs) = self.data.subscriptions.lock() {
+            subs.remove(&request.uri);
+        }
+        Ok(())
+    }
+
     fn get_info(&self) -> rmcp::model::ServerInfo {
-        // Basic server info
-        let base = rmcp::model::ServerInfo::new(
+        let has_resources = !self.data.resource_models.is_empty()
+            || !self.data.template_models.is_empty();
+        let caps = if has_resources {
             rmcp::model::ServerCapabilities::builder()
                 .enable_tools()
-                .build(),
-        )
-        .with_server_info(rmcp::model::Implementation::default())
-        .with_protocol_version(rmcp::model::ProtocolVersion::default());
+                .enable_resources()
+                .enable_resources_subscribe()
+                .build()
+        } else {
+            rmcp::model::ServerCapabilities::builder()
+                .enable_tools()
+                .build()
+        };
+        let base = rmcp::model::ServerInfo::new(caps)
+            .with_server_info(rmcp::model::Implementation::default())
+            .with_protocol_version(rmcp::model::ProtocolVersion::default());
 
         if let Some(instr) = self.data.instructions.clone() {
             base.with_instructions(instr)
@@ -510,21 +725,19 @@ trait ErasedMcpTool<Counterpart: Role>: Send + Sync {
 
 /// Create an `rmcp` tool model from our [`McpTool`] trait.
 fn make_tool_model<R: Role, M: McpTool<R>>(tool: &M) -> Tool {
-    {
-        rmcp::model::Tool::new(
-            tool.name(),
-            tool.description(),
-            schema_for_type::<M::Input>(),
-        )
-        // schema_for_output returns Err for non-object types (strings, integers, etc.)
-        // since MCP structured output requires JSON objects. We use .ok() to set
-        // output_schema to None for these tools, signaling unstructured output.
-        .with_raw_output_schema(schema_for_output::<M::Output>().ok())
-        .with_annotations(None)
-        .with_icons(None)
-        .with_meta(None)
-        .with_execution(Some(rmcp::model::ToolExecution::new()))
+    let mut t = rmcp::model::Tool::new(
+        tool.name(),
+        tool.description(),
+        schema_for_type::<M::Input>(),
+    )
+    .with_execution(rmcp::model::ToolExecution::new());
+    // schema_for_output returns Err for non-object types (strings, integers, etc.)
+    // since MCP structured output requires JSON objects. We use .ok() to set
+    // output_schema to None for these tools, signaling unstructured output.
+    if let Ok(schema) = schema_for_output::<M::Output>() {
+        t = t.with_raw_output_schema(schema);
     }
+    t
 }
 
 /// Create a [`ErasedMcpTool`] from a [`McpTool`], erasing the type details.
@@ -609,4 +822,26 @@ where
 
         result_rx.await.map_err(crate::util::internal_error)?
     }
+}
+
+/// Simple URI template matching (RFC 6570 Level 1).
+///
+/// Splits template and URI by `/`, comparing segments:
+/// - Template segments like `{section}` match any non-empty URI segment.
+/// - Literal segments must match exactly.
+///
+/// Example: `ilhae://memory/{section}` matches `ilhae://memory/system`.
+fn template_matches(template: &str, uri: &str) -> bool {
+    let tmpl_parts: Vec<&str> = template.split('/').collect();
+    let uri_parts: Vec<&str> = uri.split('/').collect();
+    if tmpl_parts.len() != uri_parts.len() {
+        return false;
+    }
+    tmpl_parts.iter().zip(uri_parts.iter()).all(|(t, u)| {
+        if t.starts_with('{') && t.ends_with('}') {
+            !u.is_empty()
+        } else {
+            t == u
+        }
+    })
 }
