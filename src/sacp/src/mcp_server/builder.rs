@@ -46,6 +46,8 @@ use rmcp::{
         Resource, RawResource, ResourceContents,
         ListResourceTemplatesResult, ResourceTemplate, RawResourceTemplate,
         SubscribeRequestParams, UnsubscribeRequestParams,
+        Prompt, PromptArgument, PromptMessage, PromptMessageRole, PromptMessageContent,
+        GetPromptRequestParams, GetPromptResult, ListPromptsResult,
     },
 };
 use schemars::JsonSchema;
@@ -107,11 +109,20 @@ struct McpServerData<Counterpart: Role> {
     template_handlers: FxHashMap<String, Arc<dyn ResourceHandler + Send + Sync>>,
     /// URI subscriptions (URIs that clients have subscribed to)
     subscriptions: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// MCP Prompts (user-controlled reusable templates)
+    prompt_models: Vec<Prompt>,
+    /// Prompt handlers keyed by name
+    prompt_handlers: FxHashMap<String, Arc<dyn PromptHandler + Send + Sync>>,
 }
 
 /// A resource read handler: given a URI, returns the text content.
 trait ResourceHandler: Send + Sync {
     fn read<'a>(&'a self, uri: &'a str) -> BoxFuture<'a, Result<String, crate::Error>>;
+}
+
+/// A prompt handler: given arguments, returns prompt messages.
+trait PromptHandler: Send + Sync {
+    fn get<'a>(&'a self, args: Option<serde_json::Map<String, serde_json::Value>>) -> BoxFuture<'a, Result<Vec<PromptMessage>, crate::Error>>;
 }
 
 /// A registered tool with its metadata.
@@ -133,6 +144,8 @@ impl<Host: Role> Default for McpServerData<Host> {
             template_models: Vec::new(),
             template_handlers: FxHashMap::default(),
             subscriptions: std::sync::Mutex::new(std::collections::HashSet::new()),
+            prompt_models: Vec::new(),
+            prompt_handlers: FxHashMap::default(),
         }
     }
 }
@@ -441,6 +454,58 @@ where
         self
     }
 
+    /// Register a prompt template with a handler that generates a text response.
+    ///
+    /// When `prompts/get` is called with this prompt's name, the handler is
+    /// invoked with the provided arguments and the returned String is wrapped
+    /// as a user `PromptMessage`.
+    ///
+    /// Arguments are specified as `(name, description, required)` tuples.
+    pub fn prompt_fn<F, Fut>(
+        mut self,
+        name: impl ToString,
+        description: impl ToString,
+        arguments: &[(&str, &str, bool)],
+        handler: F,
+    ) -> Self
+    where
+        F: Fn(Option<serde_json::Map<String, serde_json::Value>>) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Result<String, crate::Error>> + Send + 'static,
+    {
+        let name_str = name.to_string();
+        let args: Vec<PromptArgument> = arguments.iter().map(|(n, d, r)| {
+            PromptArgument::new(*n)
+                .with_description(*d)
+                .with_required(*r)
+        }).collect();
+        let args = if args.is_empty() { None } else { Some(args) };
+        self.data.prompt_models.push(
+            Prompt::new(name_str.clone(), Some(description.to_string()), args)
+        );
+
+        struct FnPromptHandler<F> {
+            func: F,
+        }
+        impl<F, Fut> PromptHandler for FnPromptHandler<F>
+        where
+            F: Fn(Option<serde_json::Map<String, serde_json::Value>>) -> Fut + Send + Sync + 'static,
+            Fut: std::future::Future<Output = Result<String, crate::Error>> + Send + 'static,
+        {
+            fn get<'a>(&'a self, args: Option<serde_json::Map<String, serde_json::Value>>) -> BoxFuture<'a, Result<Vec<PromptMessage>, crate::Error>> {
+                Box::pin(async move {
+                    let text = ((self).func)(args).await?;
+                    Ok(vec![PromptMessage::new_text(PromptMessageRole::User, text)])
+                })
+            }
+        }
+
+        self.data.prompt_handlers.insert(
+            name_str,
+            Arc::new(FnPromptHandler { func: handler }),
+        );
+        self
+    }
+
     /// Create an MCP server from this builder.
     ///
     /// This builder can be attached to new sessions (see [`SessionBuilder::with_mcp_server`](`crate::SessionBuilder::with_mcp_server`))
@@ -688,20 +753,69 @@ impl<R: Role> ServerHandler for McpServerConnection<R> {
         Ok(())
     }
 
+    async fn list_prompts(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<ListPromptsResult, ErrorData> {
+        Ok(ListPromptsResult::with_all_items(self.data.prompt_models.clone()))
+    }
+
+    async fn get_prompt(
+        &self,
+        GetPromptRequestParams { name, arguments, .. }: GetPromptRequestParams,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<GetPromptResult, ErrorData> {
+        let Some(handler) = self.data.prompt_handlers.get(&name) else {
+            return Err(ErrorData::invalid_params(
+                format!("prompt `{}` not found", name),
+                None,
+            ));
+        };
+
+        let messages = handler
+            .get(arguments)
+            .await
+            .map_err(to_rmcp_error)?;
+
+        let description = self.data.prompt_models
+            .iter()
+            .find(|p| p.name == name)
+            .and_then(|p| p.description.clone());
+
+        let mut result = GetPromptResult::new(messages);
+        if let Some(desc) = description {
+            result = result.with_description(desc);
+        }
+        Ok(result)
+    }
+
     fn get_info(&self) -> rmcp::model::ServerInfo {
         let has_resources = !self.data.resource_models.is_empty()
             || !self.data.template_models.is_empty();
-        let caps = if has_resources {
-            rmcp::model::ServerCapabilities::builder()
+        let has_prompts = !self.data.prompt_models.is_empty();
+
+        let caps = match (has_resources, has_prompts) {
+            (true, true) => rmcp::model::ServerCapabilities::builder()
                 .enable_tools()
                 .enable_resources()
                 .enable_resources_subscribe()
-                .build()
-        } else {
-            rmcp::model::ServerCapabilities::builder()
+                .enable_prompts()
+                .build(),
+            (true, false) => rmcp::model::ServerCapabilities::builder()
                 .enable_tools()
-                .build()
+                .enable_resources()
+                .enable_resources_subscribe()
+                .build(),
+            (false, true) => rmcp::model::ServerCapabilities::builder()
+                .enable_tools()
+                .enable_prompts()
+                .build(),
+            (false, false) => rmcp::model::ServerCapabilities::builder()
+                .enable_tools()
+                .build(),
         };
+
         let base = rmcp::model::ServerInfo::new(caps)
             .with_server_info(rmcp::model::Implementation::default())
             .with_protocol_version(rmcp::model::ProtocolVersion::default());
