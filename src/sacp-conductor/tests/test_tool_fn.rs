@@ -4,7 +4,7 @@
 //! that don't need mutable state.
 
 use sacp::mcp_server::McpServer;
-use sacp::{Client, Conductor, DynConnectTo, Proxy, RunWithConnectionTo, ConnectTo};
+use sacp::{Client, Conductor, ConnectTo, DynConnectTo, Proxy, RunWithConnectionTo};
 use sacp_conductor::{ConductorImpl, ProxiesAndAgent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -41,11 +41,9 @@ struct ProxyWithGreetServer<R: RunWithConnectionTo<Conductor>> {
 impl<R: RunWithConnectionTo<Conductor> + 'static + Send> ConnectTo<Conductor>
     for ProxyWithGreetServer<R>
 {
-    async fn connect_to(
-        self,
-        client: impl ConnectTo<Proxy>,
-    ) -> Result<(), sacp::Error> {
-        Proxy.builder()
+    async fn connect_to(self, client: impl ConnectTo<Proxy>) -> Result<(), sacp::Error> {
+        Proxy
+            .builder()
             .name("greet-proxy")
             .with_mcp_server(self.mcp_server)
             .connect_to(client)
@@ -57,10 +55,7 @@ impl<R: RunWithConnectionTo<Conductor> + 'static + Send> ConnectTo<Conductor>
 struct ElizacpAgentComponent;
 
 impl ConnectTo<Client> for ElizacpAgentComponent {
-    async fn connect_to(
-        self,
-        client: impl ConnectTo<sacp::Agent>,
-    ) -> Result<(), sacp::Error> {
+    async fn connect_to(self, client: impl ConnectTo<sacp::Agent>) -> Result<(), sacp::Error> {
         // Create duplex channels for bidirectional communication
         let (elizacp_write, client_read) = duplex(8192);
         let (client_write, elizacp_read) = duplex(8192);

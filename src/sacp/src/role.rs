@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::schema::{METHOD_SUCCESSOR_MESSAGE, SuccessorMessage};
 use crate::util::json_cast;
-use crate::{Builder, ConnectionTo, Handled, JsonRpcMessage, Dispatch, UntypedMessage};
+use crate::{Builder, ConnectionTo, Dispatch, Handled, JsonRpcMessage, UntypedMessage};
 
 /// Roles for the ACP protocol.
 pub mod acp;
@@ -238,7 +238,9 @@ where
             );
             match handle_dispatch(successor_dispatch, connection).await? {
                 Handled::Yes => {
-                    tracing::trace!("handle_incoming_dispatch: inner handler returned Handled::Yes");
+                    tracing::trace!(
+                        "handle_incoming_dispatch: inner handler returned Handled::Yes"
+                    );
                     Ok(Handled::Yes)
                 }
 

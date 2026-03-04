@@ -8,7 +8,7 @@ use futures::{
     future::{BoxFuture, Either},
 };
 use futures_concurrency::future::TryJoin;
-use fxhash::FxHashMap;
+use rustc_hash::FxHashMap;
 
 /// Tracks which tools are enabled.
 ///
@@ -48,7 +48,7 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use super::{McpConnectionTo, McpTool};
 use crate::{
-    ByteStreams, DynConnectTo, ConnectTo,
+    ByteStreams, ConnectTo, DynConnectTo,
     jsonrpc::run::{ChainRun, NullRun, RunWithConnectionTo},
     mcp_server::{
         McpServer, McpServerConnect,
@@ -350,7 +350,10 @@ impl<'scope, Counterpart: Role> McpServerConnect<Counterpart> for McpServerBuilt
         self.name.clone()
     }
 
-    fn connect(&self, mcp_connection: McpConnectionTo<Counterpart>) -> DynConnectTo<role::mcp::Client> {
+    fn connect(
+        &self,
+        mcp_connection: McpConnectionTo<Counterpart>,
+    ) -> DynConnectTo<role::mcp::Client> {
         DynConnectTo::new(McpServerConnection {
             data: self.data.clone(),
             mcp_connection,
@@ -365,7 +368,10 @@ pub(crate) struct McpServerConnection<Counterpart: Role> {
 }
 
 impl<Counterpart: Role> ConnectTo<role::mcp::Client> for McpServerConnection<Counterpart> {
-    async fn connect_to(self, client: impl ConnectTo<role::mcp::Server>) -> Result<(), crate::Error> {
+    async fn connect_to(
+        self,
+        client: impl ConnectTo<role::mcp::Server>,
+    ) -> Result<(), crate::Error> {
         // Create tokio byte streams that rmcp expects
         let (mcp_server_stream, mcp_client_stream) = tokio::io::duplex(8192);
         let (mcp_server_read, mcp_server_write) = tokio::io::split(mcp_server_stream);
@@ -375,8 +381,11 @@ impl<Counterpart: Role> ConnectTo<role::mcp::Client> for McpServerConnection<Cou
             // Connect byte_streams to the provided client
             let byte_streams =
                 ByteStreams::new(mcp_client_write.compat_write(), mcp_client_read.compat());
-            let _ =
-                <ByteStreams<_, _> as ConnectTo<role::mcp::Client>>::connect_to(byte_streams, client).await;
+            let _ = <ByteStreams<_, _> as ConnectTo<role::mcp::Client>>::connect_to(
+                byte_streams,
+                client,
+            )
+            .await;
             Ok(())
         };
 
@@ -402,7 +411,7 @@ impl<Counterpart: Role> ConnectTo<role::mcp::Client> for McpServerConnection<Cou
 impl<R: Role> ServerHandler for McpServerConnection<R> {
     async fn call_tool(
         &self,
-        request: rmcp::model::CallToolRequestParam,
+        request: rmcp::model::CallToolRequestParams,
         context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         // Lookup the tool definition, erroring if not found or disabled
@@ -427,7 +436,9 @@ impl<R: Role> ServerHandler for McpServerConnection<R> {
         // Execute the user's tool, unless cancellation occurs
         let has_structured_output = registered.has_structured_output;
         match futures::future::select(
-            registered.tool.call_tool(serde_value, self.mcp_connection.clone()),
+            registered
+                .tool
+                .call_tool(serde_value, self.mcp_connection.clone()),
             pin!(context.ct.cancelled()),
         )
         .await
@@ -456,7 +467,7 @@ impl<R: Role> ServerHandler for McpServerConnection<R> {
 
     async fn list_tools(
         &self,
-        _request: Option<rmcp::model::PaginatedRequestParam>,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
         _context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<rmcp::model::ListToolsResult, ErrorData> {
         // Return only enabled tools
@@ -472,13 +483,18 @@ impl<R: Role> ServerHandler for McpServerConnection<R> {
 
     fn get_info(&self) -> rmcp::model::ServerInfo {
         // Basic server info
-        rmcp::model::ServerInfo {
-            protocol_version: rmcp::model::ProtocolVersion::default(),
-            capabilities: rmcp::model::ServerCapabilities::builder()
+        let base = rmcp::model::ServerInfo::new(
+            rmcp::model::ServerCapabilities::builder()
                 .enable_tools()
                 .build(),
-            server_info: rmcp::model::Implementation::default(),
-            instructions: self.data.instructions.clone(),
+        )
+        .with_server_info(rmcp::model::Implementation::default())
+        .with_protocol_version(rmcp::model::ProtocolVersion::default());
+
+        if let Some(instr) = self.data.instructions.clone() {
+            base.with_instructions(instr)
+        } else {
+            base
         }
     }
 }
@@ -494,18 +510,20 @@ trait ErasedMcpTool<Counterpart: Role>: Send + Sync {
 
 /// Create an `rmcp` tool model from our [`McpTool`] trait.
 fn make_tool_model<R: Role, M: McpTool<R>>(tool: &M) -> Tool {
-    rmcp::model::Tool {
-        name: tool.name().into(),
-        title: tool.title(),
-        description: Some(tool.description().into()),
-        input_schema: schema_for_type::<M::Input>(),
+    {
+        rmcp::model::Tool::new(
+            tool.name(),
+            tool.description(),
+            schema_for_type::<M::Input>(),
+        )
         // schema_for_output returns Err for non-object types (strings, integers, etc.)
         // since MCP structured output requires JSON objects. We use .ok() to set
         // output_schema to None for these tools, signaling unstructured output.
-        output_schema: schema_for_output::<M::Output>().ok(),
-        annotations: None,
-        icons: None,
-        meta: None,
+        .with_raw_output_schema(schema_for_output::<M::Output>().ok())
+        .with_annotations(None)
+        .with_icons(None)
+        .with_meta(None)
+        .with_execution(Some(rmcp::model::ToolExecution::new()))
     }
 }
 
@@ -572,7 +590,11 @@ where
         self.description.clone()
     }
 
-    async fn call_tool(&self, params: P, mcp_connection: McpConnectionTo<R>) -> Result<Ret, crate::Error> {
+    async fn call_tool(
+        &self,
+        params: P,
+        mcp_connection: McpConnectionTo<R>,
+    ) -> Result<Ret, crate::Error> {
         let (result_tx, result_rx) = oneshot::channel();
 
         self.call_tx

@@ -2473,8 +2473,7 @@ mod tests {
 
         // Tokio blocking
         let r = eliza.respond("my tokio code is blocking");
-        expect!["Tokio giveth, and Tokio taketh away."]
-            .assert_eq(&r);
+        expect!["Tokio giveth, and Tokio taketh away."].assert_eq(&r);
     }
 }
 

@@ -19,7 +19,7 @@
 //!
 //! Run `just prep-tests` before running these tests.
 
-use sacp::{Agent, Client, Conductor, DynConnectTo, ConnectTo};
+use sacp::{Agent, Client, Conductor, ConnectTo, DynConnectTo};
 use sacp_conductor::{ConductorImpl, ProxiesAndAgent};
 use sacp_test::arrow_proxy::run_arrow_proxy;
 use sacp_test::test_binaries::{arrow_proxy_example, conductor_binary, elizacp};
@@ -32,10 +32,7 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 struct MockArrowProxy;
 
 impl ConnectTo<Conductor> for MockArrowProxy {
-    async fn connect_to(
-        self,
-        client: impl ConnectTo<sacp::Proxy>,
-    ) -> Result<(), sacp::Error> {
+    async fn connect_to(self, client: impl ConnectTo<sacp::Proxy>) -> Result<(), sacp::Error> {
         run_arrow_proxy(client).await
     }
 }
@@ -45,10 +42,7 @@ impl ConnectTo<Conductor> for MockArrowProxy {
 struct MockEliza;
 
 impl ConnectTo<Client> for MockEliza {
-    async fn connect_to(
-        self,
-        client: impl ConnectTo<Agent>,
-    ) -> Result<(), sacp::Error> {
+    async fn connect_to(self, client: impl ConnectTo<Agent>) -> Result<(), sacp::Error> {
         ConnectTo::<Client>::connect_to(elizacp::ElizaAgent::new(true), client).await
     }
 }
@@ -66,10 +60,7 @@ impl MockInnerConductor {
 }
 
 impl ConnectTo<Conductor> for MockInnerConductor {
-    async fn connect_to(
-        self,
-        client: impl ConnectTo<sacp::Proxy>,
-    ) -> Result<(), sacp::Error> {
+    async fn connect_to(self, client: impl ConnectTo<sacp::Proxy>) -> Result<(), sacp::Error> {
         // Create mock arrow proxy components for the inner conductor
         // This conductor is ONLY proxies - no actual agent
         // Use Serve::serve instead of .run() to get the Serve<Conductor> impl

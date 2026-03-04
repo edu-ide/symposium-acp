@@ -111,8 +111,8 @@ pub mod jsonrpcmsg {
 }
 
 pub use jsonrpc::{
-    ByteStreams, Channel, Builder, ConnectionTo, HandleDispatchFrom, Handled, IntoHandled,
-    JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, Lines, Dispatch,
+    Builder, ByteStreams, Channel, ConnectionTo, Dispatch, HandleDispatchFrom, Handled,
+    IntoHandled, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, Lines,
     NullHandler, Responder, ResponseRouter, SentRequest, UntypedMessage,
     run::{ChainRun, NullRun, RunWithConnectionTo},
 };
@@ -122,7 +122,7 @@ pub use role::{
     acp::{Agent, Client, Conductor, Proxy},
 };
 
-pub use component::{DynConnectTo, ConnectTo};
+pub use component::{ConnectTo, DynConnectTo};
 
 // Re-export BoxFuture for implementing Component traits
 pub use futures::future::BoxFuture;

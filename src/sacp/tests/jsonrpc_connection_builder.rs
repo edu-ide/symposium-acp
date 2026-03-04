@@ -10,8 +10,8 @@ use std::{
 };
 
 use sacp::{
-    ConnectionTo, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, Responder,
-    SentRequest, ConnectTo, role::UntypedRole, util::run_until,
+    ConnectTo, ConnectionTo, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
+    Responder, SentRequest, role::UntypedRole, util::run_until,
 };
 use serde::{Deserialize, Serialize};
 use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
@@ -137,7 +137,8 @@ async fn test_multiple_handlers_different_methods() {
 
             // Chain both handlers
             let server_transport = sacp::ByteStreams::new(server_writer, server_reader);
-            let server = UntypedRole.builder()
+            let server = UntypedRole
+                .builder()
                 .on_receive_request(
                     async |request: FooRequest,
                            responder: Responder<FooResponse>,
@@ -257,7 +258,8 @@ async fn test_handler_priority_ordering() {
             let handled_clone1 = handled.clone();
             let handled_clone2 = handled.clone();
             let server_transport = sacp::ByteStreams::new(server_writer, server_reader);
-            let server = UntypedRole.builder()
+            let server = UntypedRole
+                .builder()
                 .on_receive_request(
                     async move |request: TrackRequest,
                                 responder: Responder<FooResponse>,
@@ -405,7 +407,8 @@ async fn test_fallthrough_behavior() {
             let handled_clone1 = handled.clone();
             let handled_clone2 = handled.clone();
             let server_transport = sacp::ByteStreams::new(server_writer, server_reader);
-            let server = UntypedRole.builder()
+            let server = UntypedRole
+                .builder()
                 .on_receive_request(
                     async move |request: Method1Request,
                                 responder: Responder<FooResponse>,
@@ -667,7 +670,8 @@ async fn test_connection_builder_as_component() -> Result<(), sacp::Error> {
         ConnectTo::<UntypedRole>::connect_to(server_builder, server_transport),
         async move {
             // Client side
-            UntypedRole.builder()
+            UntypedRole
+                .builder()
                 .connect_with(client_transport, async |cx| {
                     let response = recv(cx.send_request(FooRequest {
                         value: "test".to_string(),

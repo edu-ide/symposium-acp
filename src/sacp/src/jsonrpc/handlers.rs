@@ -1,7 +1,7 @@
 use crate::jsonrpc::{HandleDispatchFrom, Handled, IntoHandled, JsonRpcResponse};
 
 use crate::role::{HasPeer, Role, handle_incoming_dispatch};
-use crate::{ConnectionTo, JsonRpcNotification, JsonRpcRequest, Dispatch, UntypedMessage};
+use crate::{ConnectionTo, Dispatch, JsonRpcNotification, JsonRpcRequest, UntypedMessage};
 // Types re-exported from crate root
 use super::Responder;
 use std::marker::PhantomData;
@@ -256,12 +256,9 @@ where
                                         ?notif,
                                         "NotificationHandler::handle_notification: parse completed"
                                     );
-                                    let result = (self.to_future_hack)(
-                                        &mut self.handler,
-                                        notif,
-                                        connection,
-                                    )
-                                    .await?;
+                                    let result =
+                                        (self.to_future_hack)(&mut self.handler, notif, connection)
+                                            .await?;
                                     match result.into_handled() {
                                         Handled::Yes => Ok(Handled::Yes),
                                         Handled::No {
@@ -363,9 +360,7 @@ where
             self.peer.clone(),
             dispatch,
             connection,
-            async |dispatch, connection| match dispatch
-                .into_typed_dispatch::<Req, Notif>()?
-            {
+            async |dispatch, connection| match dispatch.into_typed_dispatch::<Req, Notif>()? {
                 Ok(typed_dispatch) => {
                     let result =
                         (self.to_future_hack)(&mut self.handler, typed_dispatch, connection)

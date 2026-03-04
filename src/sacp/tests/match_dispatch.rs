@@ -2,8 +2,8 @@ use sacp::Role;
 use sacp::role::UntypedRole;
 use sacp::util::MatchDispatch;
 use sacp::{
-    ConnectionTo, HandleDispatchFrom, Handled, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse,
-    Dispatch, Responder, ConnectTo, util::MatchDispatchFrom,
+    ConnectTo, ConnectionTo, Dispatch, HandleDispatchFrom, Handled, JsonRpcMessage, JsonRpcRequest,
+    JsonRpcResponse, Responder, util::MatchDispatchFrom,
 };
 use serde::{Deserialize, Serialize};
 
@@ -80,7 +80,8 @@ async fn modify_message_en_route() -> Result<(), sacp::Error> {
 
     impl ConnectTo<UntypedRole> for TestComponent {
         async fn connect_to(self, client: impl ConnectTo<UntypedRole>) -> Result<(), sacp::Error> {
-            UntypedRole.builder()
+            UntypedRole
+                .builder()
                 .with_handler(PushHandler {
                     message: "b".to_string(),
                 })
@@ -117,7 +118,8 @@ async fn modify_message_en_route() -> Result<(), sacp::Error> {
         }
     }
 
-    UntypedRole.builder()
+    UntypedRole
+        .builder()
         .connect_with(TestComponent, async |cx| {
             let result = cx
                 .send_request(EchoRequestResponse {
@@ -148,7 +150,8 @@ async fn modify_message_en_route_inline() -> Result<(), sacp::Error> {
 
     impl ConnectTo<UntypedRole> for TestComponent {
         async fn connect_to(self, client: impl ConnectTo<UntypedRole>) -> Result<(), sacp::Error> {
-            UntypedRole.builder()
+            UntypedRole
+                .builder()
                 .on_receive_request(
                     async move |mut request: EchoRequestResponse,
                                 responder: Responder<EchoRequestResponse>,
@@ -167,7 +170,8 @@ async fn modify_message_en_route_inline() -> Result<(), sacp::Error> {
         }
     }
 
-    UntypedRole.builder()
+    UntypedRole
+        .builder()
         .connect_with(TestComponent, async |cx| {
             let result = cx
                 .send_request(EchoRequestResponse {
@@ -199,7 +203,8 @@ async fn modify_message_and_stop() -> Result<(), sacp::Error> {
 
     impl ConnectTo<UntypedRole> for TestComponent {
         async fn connect_to(self, client: impl ConnectTo<UntypedRole>) -> Result<(), sacp::Error> {
-            UntypedRole.builder()
+            UntypedRole
+                .builder()
                 .on_receive_request(
                     async move |request: EchoRequestResponse,
                                 responder: Responder<EchoRequestResponse>,
@@ -226,7 +231,8 @@ async fn modify_message_and_stop() -> Result<(), sacp::Error> {
         }
     }
 
-    UntypedRole.builder()
+    UntypedRole
+        .builder()
         .connect_with(TestComponent, async |cx| {
             let result = cx
                 .send_request(EchoRequestResponse {

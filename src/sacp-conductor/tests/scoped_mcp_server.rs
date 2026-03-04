@@ -6,7 +6,7 @@
 
 use elizacp::ElizaAgent;
 use sacp::mcp_server::McpServer;
-use sacp::{Agent, Conductor, Proxy, Role, RunWithConnectionTo, ConnectTo};
+use sacp::{Agent, Conductor, ConnectTo, Proxy, Role, RunWithConnectionTo};
 use sacp_conductor::{ConductorImpl, McpBridgeMode, ProxiesAndAgent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -126,7 +126,8 @@ impl ConnectTo<Conductor> for ScopedProxy {
         // Build the MCP server that captures a reference to collected_values
         let mcp_server = make_mcp_server::<sacp::Conductor>(&values);
 
-        Proxy.builder()
+        Proxy
+            .builder()
             .name("scoped-mcp-server")
             .with_mcp_server(mcp_server)
             .connect_to(client)

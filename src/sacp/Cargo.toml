@@ -15,7 +15,7 @@ anyhow.workspace = true
 boxfnonce.workspace = true
 futures.workspace = true
 futures-concurrency = "7.6.3"
-fxhash.workspace = true
+rustc-hash.workspace = true
 jsonrpcmsg.workspace = true
 rmcp = { workspace = true, features = ["server"] }
 schemars.workspace = true

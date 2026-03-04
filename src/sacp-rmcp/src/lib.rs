@@ -24,7 +24,7 @@ use futures_concurrency::future::TryJoin as _;
 use rmcp::ServiceExt;
 use sacp::mcp_server::{McpConnectionTo, McpServer, McpServerConnect};
 use sacp::role::{self, HasPeer};
-use sacp::{Agent, ByteStreams, DynConnectTo, NullRun, Role, ConnectTo};
+use sacp::{Agent, ByteStreams, ConnectTo, DynConnectTo, NullRun, Role};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 pub trait McpServerExt<Counterpart: Role>
@@ -58,7 +58,10 @@ where
                 self.name.clone()
             }
 
-            fn connect(&self, _cx: McpConnectionTo<Counterpart>) -> DynConnectTo<role::mcp::Client> {
+            fn connect(
+                &self,
+                _cx: McpConnectionTo<Counterpart>,
+            ) -> DynConnectTo<role::mcp::Client> {
                 let service = (self.new_fn)();
                 DynConnectTo::new(RmcpServerComponent { service })
             }
@@ -88,7 +91,10 @@ impl<S> ConnectTo<role::mcp::Client> for RmcpServerComponent<S>
 where
     S: rmcp::Service<rmcp::RoleServer>,
 {
-    async fn connect_to(self, client: impl ConnectTo<role::mcp::Server>) -> Result<(), sacp::Error> {
+    async fn connect_to(
+        self,
+        client: impl ConnectTo<role::mcp::Server>,
+    ) -> Result<(), sacp::Error> {
         // Create tokio byte streams that rmcp expects
         let (mcp_server_stream, mcp_client_stream) = tokio::io::duplex(8192);
         let (mcp_server_read, mcp_server_write) = tokio::io::split(mcp_server_stream);

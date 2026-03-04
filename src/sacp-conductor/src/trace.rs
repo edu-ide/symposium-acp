@@ -8,9 +8,9 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::time::Instant;
 
-use fxhash::FxHashMap;
+use rustc_hash::FxHashMap;
 use sacp::schema::{McpOverAcpMessage, SuccessorMessage};
-use sacp::{jsonrpcmsg, DynConnectTo, JsonRpcMessage, Role, UntypedMessage};
+use sacp::{DynConnectTo, JsonRpcMessage, Role, UntypedMessage, jsonrpcmsg};
 use serde::{Deserialize, Serialize};
 
 use crate::ComponentIndex;

@@ -20,8 +20,8 @@
 use jsonrpcmsg::Params;
 
 use crate::{
-    ConnectionTo, HandleDispatchFrom, Handled, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
-    Dispatch, Responder, ResponseRouter, UntypedMessage,
+    ConnectionTo, Dispatch, HandleDispatchFrom, Handled, JsonRpcNotification, JsonRpcRequest,
+    JsonRpcResponse, Responder, ResponseRouter, UntypedMessage,
     role::{HasPeer, Role, handle_incoming_dispatch},
     util::json_cast,
 };
@@ -310,9 +310,7 @@ impl MatchDispatch {
                         // Method matches, parse the response
                         let typed_router: ResponseRouter<Req::Response> = router.cast();
                         let typed_result = match result {
-                            Ok(value) => {
-                                Req::Response::from_value(typed_router.method(), value)
-                            }
+                            Ok(value) => Req::Response::from_value(typed_router.method(), value),
                             Err(err) => Err(err),
                         };
 

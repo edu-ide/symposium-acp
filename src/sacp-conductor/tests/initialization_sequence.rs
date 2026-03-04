@@ -10,7 +10,7 @@ use sacp::schema::{
     AgentCapabilities, InitializeProxyRequest, InitializeRequest, InitializeResponse,
     ProtocolVersion,
 };
-use sacp::{Agent, Client, Conductor, DynConnectTo, Proxy, ConnectTo};
+use sacp::{Agent, Client, Conductor, ConnectTo, DynConnectTo, Proxy};
 use sacp_conductor::{ConductorImpl, ProxiesAndAgent};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -73,7 +73,8 @@ impl ConnectTo<Conductor> for InitComponent {
         let config = self.config;
         let config2 = Arc::clone(&config);
 
-        Proxy.builder()
+        Proxy
+            .builder()
             .name("init-component")
             // Handle InitializeProxyRequest (we're a proxy)
             .on_receive_request_from(
@@ -121,7 +122,8 @@ async fn run_test_with_components(
 
     let transport = sacp::ByteStreams::new(editor_out.compat_write(), editor_in.compat());
 
-    sacp::Client.builder()
+    sacp::Client
+        .builder()
         .name("editor-to-connector")
         .with_spawned(|_cx| async move {
             ConductorImpl::new_agent(
@@ -144,8 +146,10 @@ async fn test_single_component_gets_initialize_request() -> Result<(), sacp::Err
     // Single component (agent) should receive InitializeRequest - we use ElizaAgent
     // which properly handles InitializeRequest
     run_test_with_components(vec![], async |connection_to_editor| {
-        let init_response =
-            recv(connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST))).await;
+        let init_response = recv(
+            connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST)),
+        )
+        .await;
 
         assert!(
             init_response.is_ok(),
@@ -166,18 +170,23 @@ async fn test_two_components_proxy_gets_initialize_proxy() -> Result<(), sacp::E
     // Second component (agent, ElizaAgent) gets InitializeRequest
     let component1 = InitConfig::new();
 
-    run_test_with_components(vec![InitComponent::new(&component1)], async |connection_to_editor| {
-        let init_response =
-            recv(connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST))).await;
+    run_test_with_components(
+        vec![InitComponent::new(&component1)],
+        async |connection_to_editor| {
+            let init_response = recv(
+                connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST)),
+            )
+            .await;
 
-        assert!(
-            init_response.is_ok(),
-            "Initialize should succeed: {:?}",
-            init_response
-        );
+            assert!(
+                init_response.is_ok(),
+                "Initialize should succeed: {:?}",
+                init_response
+            );
 
-        Ok::<(), sacp::Error>(())
-    })
+            Ok::<(), sacp::Error>(())
+        },
+    )
     .await?;
 
     // First component (proxy) should receive InitializeProxyRequest
@@ -205,8 +214,10 @@ async fn test_three_components_all_proxies_get_initialize_proxy() -> Result<(), 
             InitComponent::new(&component2),
         ],
         async |connection_to_editor| {
-            let init_response =
-                recv(connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST))).await;
+            let init_response = recv(
+                connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST)),
+            )
+            .await;
 
             assert!(
                 init_response.is_ok(),
@@ -241,11 +252,9 @@ async fn test_three_components_all_proxies_get_initialize_proxy() -> Result<(), 
 struct BadProxy;
 
 impl ConnectTo<Conductor> for BadProxy {
-    async fn connect_to(
-        self,
-        client: impl ConnectTo<Proxy>,
-    ) -> Result<(), sacp::Error> {
-        Proxy.builder()
+    async fn connect_to(self, client: impl ConnectTo<Proxy>) -> Result<(), sacp::Error> {
+        Proxy
+            .builder()
             .name("bad-proxy")
             .on_receive_request_from(
                 Client,
@@ -275,7 +284,8 @@ async fn run_bad_proxy_test(
 
     let transport = sacp::ByteStreams::new(editor_out.compat_write(), editor_in.compat());
 
-    sacp::Client.builder()
+    sacp::Client
+        .builder()
         .name("editor-to-connector")
         .with_spawned(|_cx| async move {
             ConductorImpl::new_agent(
@@ -301,8 +311,10 @@ async fn test_conductor_rejects_initialize_proxy_forwarded_to_agent() -> Result<
         vec![DynConnectTo::new(BadProxy)],
         DynConnectTo::new(ElizaAgent::new(true)),
         async |connection_to_editor| {
-            let init_response =
-                recv(connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST))).await;
+            let init_response = recv(
+                connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST)),
+            )
+            .await;
 
             if let Err(err) = init_response {
                 assert!(
@@ -342,8 +354,10 @@ async fn test_conductor_rejects_initialize_proxy_forwarded_to_proxy() -> Result<
         ],
         DynConnectTo::new(ElizaAgent::new(true)), // Agent
         async |connection_to_editor| {
-            let init_response =
-                recv(connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST))).await;
+            let init_response = recv(
+                connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST)),
+            )
+            .await;
 
             // The error may come through recv() or bubble up through the test harness
             if let Err(err) = init_response {

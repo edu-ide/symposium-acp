@@ -1,6 +1,6 @@
 use futures::StreamExt;
 use futures_concurrency::future::TryJoin;
-use sacp::{Channel, DynConnectTo, Role, ConnectTo, jsonrpcmsg};
+use sacp::{Channel, ConnectTo, DynConnectTo, Role, jsonrpcmsg};
 
 pub struct SnooperComponent<R: Role> {
     base_component: DynConnectTo<R>,
@@ -29,7 +29,10 @@ impl<R: Role> SnooperComponent<R> {
 }
 
 impl<R: Role> ConnectTo<R> for SnooperComponent<R> {
-    async fn connect_to(mut self, client: impl ConnectTo<R::Counterpart>) -> Result<(), sacp::Error> {
+    async fn connect_to(
+        mut self,
+        client: impl ConnectTo<R::Counterpart>,
+    ) -> Result<(), sacp::Error> {
         let (client_a, mut client_b) = Channel::duplex();
 
         let client_future = client.connect_to(client_a);

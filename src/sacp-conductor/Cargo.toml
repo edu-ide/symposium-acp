@@ -40,7 +40,7 @@ tracing-appender.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 async-stream = "0.3.6"
-fxhash.workspace = true
+rustc-hash.workspace = true
 futures-concurrency = "7.6.3"
 
 [dev-dependencies]

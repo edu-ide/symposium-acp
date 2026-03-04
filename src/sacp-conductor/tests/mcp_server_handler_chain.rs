@@ -10,7 +10,7 @@ use sacp::schema::{
     AgentCapabilities, InitializeRequest, InitializeResponse, NewSessionRequest,
     NewSessionResponse, ProtocolVersion, SessionId,
 };
-use sacp::{Agent, Client, Conductor, DynConnectTo, Proxy, ConnectTo};
+use sacp::{Agent, Client, Conductor, ConnectTo, DynConnectTo, Proxy};
 use sacp_conductor::{ConductorImpl, ProxiesAndAgent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -68,10 +68,7 @@ struct ProxyWithMcpAndHandler {
 }
 
 impl ConnectTo<Conductor> for ProxyWithMcpAndHandler {
-    async fn connect_to(
-        self,
-        client: impl ConnectTo<Proxy>,
-    ) -> Result<(), sacp::Error> {
+    async fn connect_to(self, client: impl ConnectTo<Proxy>) -> Result<(), sacp::Error> {
         let config = Arc::clone(&self.config);
 
         // Create an MCP server with a simple tool
@@ -89,7 +86,8 @@ impl ConnectTo<Conductor> for ProxyWithMcpAndHandler {
             )
             .build();
 
-        sacp::Proxy.builder()
+        sacp::Proxy
+            .builder()
             .name("proxy-with-mcp-and-handler")
             // Add the MCP server
             .with_mcp_server(mcp_server)
@@ -120,11 +118,9 @@ impl ConnectTo<Conductor> for ProxyWithMcpAndHandler {
 struct SimpleAgent;
 
 impl ConnectTo<Client> for SimpleAgent {
-    async fn connect_to(
-        self,
-        client: impl ConnectTo<Agent>,
-    ) -> Result<(), sacp::Error> {
-        Agent.builder()
+    async fn connect_to(self, client: impl ConnectTo<Agent>) -> Result<(), sacp::Error> {
+        Agent
+            .builder()
             .name("simple-agent")
             .on_receive_request(
                 async |request: InitializeRequest, responder, _cx| {
@@ -158,7 +154,8 @@ async fn run_test(
 
     let transport = sacp::ByteStreams::new(editor_out.compat_write(), editor_in.compat());
 
-    sacp::Client.builder()
+    sacp::Client
+        .builder()
         .name("editor-to-conductor")
         .with_spawned(|_cx| async move {
             ConductorImpl::new_agent(
@@ -189,12 +186,15 @@ async fn test_new_session_handler_invoked_with_mcp_server() -> Result<(), sacp::
 
     run_test(vec![proxy], agent, async |connection_to_editor| {
         // Initialize first
-        let _init_response =
-            recv(connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST))).await?;
+        let _init_response = recv(
+            connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST)),
+        )
+        .await?;
 
         // Create a new session - this should trigger the handler in the proxy
         let session_response =
-            recv(connection_to_editor.send_request(NewSessionRequest::new(PathBuf::from("/tmp")))).await?;
+            recv(connection_to_editor.send_request(NewSessionRequest::new(PathBuf::from("/tmp"))))
+                .await?;
 
         // Verify we got a valid session ID
         assert!(

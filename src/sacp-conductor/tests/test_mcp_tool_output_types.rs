@@ -3,8 +3,8 @@
 //! MCP structured output requires JSON objects. This test verifies behavior
 //! when tools return non-object types like bare strings or integers.
 
-use sacp::{Agent, Client, Conductor, DynConnectTo, Proxy, RunWithConnectionTo, ConnectTo};
 use sacp::mcp_server::McpServer;
+use sacp::{Agent, Client, Conductor, ConnectTo, DynConnectTo, Proxy, RunWithConnectionTo};
 use sacp_conductor::{ConductorImpl, ProxiesAndAgent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -43,11 +43,9 @@ struct ProxyWithTestServer<R: RunWithConnectionTo<Conductor>> {
 impl<R: RunWithConnectionTo<Conductor> + 'static + Send> ConnectTo<Conductor>
     for ProxyWithTestServer<R>
 {
-    async fn connect_to(
-        self,
-        client: impl ConnectTo<Proxy>,
-    ) -> Result<(), sacp::Error> {
-        sacp::Proxy.builder()
+    async fn connect_to(self, client: impl ConnectTo<Proxy>) -> Result<(), sacp::Error> {
+        sacp::Proxy
+            .builder()
             .name("test-proxy")
             .with_mcp_server(self.mcp_server)
             .connect_to(client)
@@ -59,10 +57,7 @@ impl<R: RunWithConnectionTo<Conductor> + 'static + Send> ConnectTo<Conductor>
 struct ElizacpAgentComponent;
 
 impl ConnectTo<Client> for ElizacpAgentComponent {
-    async fn connect_to(
-        self,
-        client: impl ConnectTo<Agent>,
-    ) -> Result<(), sacp::Error> {
+    async fn connect_to(self, client: impl ConnectTo<Agent>) -> Result<(), sacp::Error> {
         let (elizacp_write, client_read) = duplex(8192);
         let (client_write, elizacp_read) = duplex(8192);
 

@@ -226,7 +226,8 @@ async fn test_trace_mcp_tool_call() -> Result<(), sacp::Error> {
 
     // Run the client interaction
     let test_result = tokio::time::timeout(std::time::Duration::from_secs(30), async move {
-        sacp::Client.builder()
+        sacp::Client
+            .builder()
             .name("test-client")
             .on_receive_notification(
                 {
@@ -424,9 +425,9 @@ async fn test_trace_mcp_tool_call() -> Result<(), sacp::Error> {
                         "capabilities": Object {},
                         "clientInfo": Object {
                             "name": String("rmcp"),
-                            "version": String("0.12.0"),
+                            "version": String("1.0.0-alpha"),
                         },
-                        "protocolVersion": String("2025-03-26"),
+                        "protocolVersion": String("2025-06-18"),
                     },
                 },
             ),
@@ -442,10 +443,10 @@ async fn test_trace_mcp_tool_call() -> Result<(), sacp::Error> {
                             "tools": Object {},
                         },
                         "instructions": String("A simple test MCP server with an echo tool"),
-                        "protocolVersion": String("2025-03-26"),
+                        "protocolVersion": String("2025-06-18"),
                         "serverInfo": Object {
                             "name": String("rmcp"),
-                            "version": String("0.12.0"),
+                            "version": String("1.0.0-alpha"),
                         },
                     },
                 },

@@ -5,7 +5,7 @@
 
 use rmcp::{ClientHandler, ServiceExt, model::ClientInfo};
 use sacp::{
-    ByteStreams, RunWithConnectionTo, ConnectTo, mcp_server::McpServer, role::mcp, util::run_until,
+    ByteStreams, ConnectTo, RunWithConnectionTo, mcp_server::McpServer, role::mcp, util::run_until,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -126,15 +126,14 @@ async fn test_standalone_server_call_echo_tool() -> Result<(), sacp::Error> {
 
             // Call the echo tool
             let result = client
-                .call_tool(rmcp::model::CallToolRequestParam {
-                    name: "echo".into(),
-                    arguments: Some(
+                .call_tool(
+                    rmcp::model::CallToolRequestParams::new("echo").with_arguments(
                         serde_json::json!({ "message": "hello world" })
                             .as_object()
                             .unwrap()
                             .clone(),
                     ),
-                })
+                )
                 .await
                 .map_err(sacp::util::internal_error)?;
 
@@ -174,15 +173,14 @@ async fn test_standalone_server_call_add_tool() -> Result<(), sacp::Error> {
 
             // Call the add tool
             let result = client
-                .call_tool(rmcp::model::CallToolRequestParam {
-                    name: "add".into(),
-                    arguments: Some(
+                .call_tool(
+                    rmcp::model::CallToolRequestParams::new("add").with_arguments(
                         serde_json::json!({ "a": 5, "b": 3 })
                             .as_object()
                             .unwrap()
                             .clone(),
                     ),
-                })
+                )
                 .await
                 .map_err(sacp::util::internal_error)?;
 
@@ -225,10 +223,7 @@ async fn test_standalone_server_tool_not_found() -> Result<(), sacp::Error> {
 
             // Call a non-existent tool
             let result = client
-                .call_tool(rmcp::model::CallToolRequestParam {
-                    name: "nonexistent".into(),
-                    arguments: None,
-                })
+                .call_tool(rmcp::model::CallToolRequestParams::new("nonexistent"))
                 .await;
 
             // Should get an error
@@ -288,15 +283,14 @@ async fn test_standalone_server_with_disabled_tools() -> Result<(), sacp::Error>
 
             // Calling disabled tool should fail
             let result = client
-                .call_tool(rmcp::model::CallToolRequestParam {
-                    name: "echo".into(),
-                    arguments: Some(
+                .call_tool(
+                    rmcp::model::CallToolRequestParams::new("echo").with_arguments(
                         serde_json::json!({ "message": "test" })
                             .as_object()
                             .unwrap()
                             .clone(),
                     ),
-                })
+                )
                 .await;
 
             assert!(result.is_err(), "Expected error for disabled tool");

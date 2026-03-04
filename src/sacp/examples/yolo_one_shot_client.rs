@@ -85,7 +85,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = sacp::ByteStreams::new(child_stdin.compat_write(), child_stdout.compat());
 
     // Run the client
-    Client.builder()
+    Client
+        .builder()
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
                 // Print session updates to stdout (so 2>/dev/null shows only agent output)

@@ -8,7 +8,7 @@ use futures::channel::mpsc;
 use tokio::sync::oneshot;
 
 use crate::{
-    Agent, Client, ConnectionTo, HandleDispatchFrom, Handled, Dispatch, Responder, Role,
+    Agent, Client, ConnectionTo, Dispatch, HandleDispatchFrom, Handled, Responder, Role,
     jsonrpc::{
         DynamicHandlerRegistration,
         run::{ChainRun, NullRun, RunWithConnectionTo},

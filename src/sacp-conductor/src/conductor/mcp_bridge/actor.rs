@@ -1,5 +1,5 @@
 use futures::{SinkExt as _, StreamExt as _, channel::mpsc};
-use sacp::{DynConnectTo, Dispatch, ConnectTo, role::mcp, schema::McpDisconnectNotification};
+use sacp::{ConnectTo, Dispatch, DynConnectTo, role::mcp, schema::McpDisconnectNotification};
 use tracing::info;
 
 use crate::conductor::ConductorMessage;
@@ -41,7 +41,8 @@ impl McpBridgeConnectionActor {
             to_mcp_client_rx,
         } = self;
 
-        let result = mcp::Client.builder()
+        let result = mcp::Client
+            .builder()
             .name(format!("mpc-client-to-conductor({connection_id})"))
             // When we receive a message from the MCP client, forward it to the conductor
             .on_receive_dispatch(

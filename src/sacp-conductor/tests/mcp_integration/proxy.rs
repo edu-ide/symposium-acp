@@ -1,7 +1,7 @@
 //! Proxy component that provides MCP tools
 
-use sacp::{Conductor, Proxy, ConnectTo};
 use sacp::mcp_server::McpServer;
+use sacp::{Conductor, ConnectTo, Proxy};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -37,7 +37,8 @@ impl ConnectTo<Conductor> for ProxyComponent {
             )
             .build();
 
-        sacp::Proxy.builder()
+        sacp::Proxy
+            .builder()
             .name("proxy-component")
             .with_mcp_server(test_server)
             .connect_to(client)

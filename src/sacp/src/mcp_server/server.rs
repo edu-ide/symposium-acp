@@ -7,7 +7,8 @@ use futures::{StreamExt, channel::mpsc};
 use uuid::Uuid;
 
 use crate::{
-    Agent, Client, ConnectionTo, DynConnectTo, HandleDispatchFrom, Handled, Dispatch, Role, ConnectTo,
+    Agent, Client, ConnectTo, ConnectionTo, Dispatch, DynConnectTo, HandleDispatchFrom, Handled,
+    Role,
     jsonrpc::{
         DynamicHandlerRegistration,
         run::{NullRun, RunWithConnectionTo},
@@ -176,16 +177,13 @@ where
         cx: ConnectionTo<Counterpart>,
     ) -> Result<Handled<Dispatch>, crate::Error> {
         MatchDispatchFrom::new(message, &cx)
-            .if_request_from(
-                Client,
-                async |mut request: NewSessionRequest, responder| {
-                    self.modify_new_session_request(&mut request);
-                    Ok(Handled::No {
-                        message: (request, responder),
-                        retry: false,
-                    })
-                },
-            )
+            .if_request_from(Client, async |mut request: NewSessionRequest, responder| {
+                self.modify_new_session_request(&mut request);
+                Ok(Handled::No {
+                    message: (request, responder),
+                    retry: false,
+                })
+            })
             .await
             .if_request_from(
                 Client,
@@ -211,7 +209,10 @@ impl<Run> ConnectTo<role::mcp::Client> for McpServer<role::mcp::Client, Run>
 where
     Run: RunWithConnectionTo<role::mcp::Client> + 'static,
 {
-    async fn connect_to(self, client: impl ConnectTo<role::mcp::Server>) -> Result<(), crate::Error> {
+    async fn connect_to(
+        self,
+        client: impl ConnectTo<role::mcp::Server>,
+    ) -> Result<(), crate::Error> {
         let Self {
             acp_url,
             connect,
@@ -221,7 +222,8 @@ where
 
         let (tx, mut rx) = mpsc::unbounded();
 
-        role::mcp::Server.builder()
+        role::mcp::Server
+            .builder()
             .with_responder(responder)
             .on_receive_dispatch(
                 async |message_from_client: Dispatch, _cx| {
@@ -237,7 +239,8 @@ where
                         connection: connection_to_client.clone(),
                     });
 
-                role::mcp::Client.builder()
+                role::mcp::Client
+                    .builder()
                     .on_receive_dispatch(
                         async |message_from_server: Dispatch, _| {
                             // when we receive a message from the server, fwd to the client

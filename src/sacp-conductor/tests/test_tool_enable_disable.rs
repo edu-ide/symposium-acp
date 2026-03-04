@@ -3,8 +3,8 @@
 //! These tests verify that `disable_tool`, `enable_tool`, `disable_all_tools`,
 //! and `enable_all_tools` correctly filter which tools are visible and callable.
 
-use sacp::{Agent, Client, Conductor, DynConnectTo, Proxy, RunWithConnectionTo, ConnectTo};
 use sacp::mcp_server::McpServer;
+use sacp::{Agent, Client, Conductor, ConnectTo, DynConnectTo, Proxy, RunWithConnectionTo};
 use sacp_conductor::{ConductorImpl, ProxiesAndAgent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -88,14 +88,10 @@ struct TestProxy<R: RunWithConnectionTo<Conductor>> {
     mcp_server: McpServer<Conductor, R>,
 }
 
-impl<R: RunWithConnectionTo<Conductor> + 'static + Send> ConnectTo<Conductor>
-    for TestProxy<R>
-{
-    async fn connect_to(
-        self,
-        client: impl ConnectTo<Proxy>,
-    ) -> Result<(), sacp::Error> {
-        sacp::Proxy.builder()
+impl<R: RunWithConnectionTo<Conductor> + 'static + Send> ConnectTo<Conductor> for TestProxy<R> {
+    async fn connect_to(self, client: impl ConnectTo<Proxy>) -> Result<(), sacp::Error> {
+        sacp::Proxy
+            .builder()
             .name("test-proxy")
             .with_mcp_server(self.mcp_server)
             .connect_to(client)
@@ -107,10 +103,7 @@ impl<R: RunWithConnectionTo<Conductor> + 'static + Send> ConnectTo<Conductor>
 struct ElizacpAgentComponent;
 
 impl ConnectTo<Client> for ElizacpAgentComponent {
-    async fn connect_to(
-        self,
-        client: impl ConnectTo<Agent>,
-    ) -> Result<(), sacp::Error> {
+    async fn connect_to(self, client: impl ConnectTo<Agent>) -> Result<(), sacp::Error> {
         let (elizacp_write, client_read) = duplex(8192);
         let (client_write, elizacp_read) = duplex(8192);
 

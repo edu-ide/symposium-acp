@@ -8,7 +8,7 @@ use sacp::schema::{
     SelectedPermissionOutcome, SessionNotification, TextContent,
 };
 use sacp::util::MatchDispatch;
-use sacp::{Agent, Client, Handled, Dispatch, ConnectTo, UntypedMessage};
+use sacp::{Agent, Client, ConnectTo, Dispatch, Handled, UntypedMessage};
 use std::path::PathBuf;
 
 /// Converts a `ContentBlock` to its string representation.
@@ -86,7 +86,8 @@ pub async fn prompt_with_callback(
     let prompt_text = prompt_text.to_string();
 
     // Run the client
-    Client.builder()
+    Client
+        .builder()
         .on_receive_dispatch(
             async |message: Dispatch<UntypedMessage, UntypedMessage>, _cx| {
                 tracing::trace!("received: {:?}", message.message());

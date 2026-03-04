@@ -4,15 +4,18 @@
 //! `session/update` notifications and prepending `>` to the content.
 
 use sacp::schema::{ContentBlock, ContentChunk, SessionNotification, SessionUpdate};
-use sacp::{Agent, Client, Proxy, ConnectTo};
+use sacp::{Agent, Client, ConnectTo, Proxy};
 
 /// Run the arrow proxy that adds `>` to each session update.
 ///
 /// # Arguments
 ///
 /// * `transport` - Component to the predecessor (conductor or another proxy)
-pub async fn run_arrow_proxy(transport: impl ConnectTo<Proxy> + 'static) -> Result<(), sacp::Error> {
-    Proxy.builder()
+pub async fn run_arrow_proxy(
+    transport: impl ConnectTo<Proxy> + 'static,
+) -> Result<(), sacp::Error> {
+    Proxy
+        .builder()
         .name("arrow-proxy")
         // Intercept session notifications from successor (agent) and modify them.
         // Using on_receive_notification_from(Agent, ...) automatically unwraps

@@ -9,7 +9,7 @@ use sacp::schema::{
     PromptRequest, PromptResponse, SessionId, SessionNotification, SessionUpdate, StopReason,
     TextContent,
 };
-use sacp::{Agent, Client, ConnectionTo, Responder, ConnectTo};
+use sacp::{Agent, Client, ConnectTo, ConnectionTo, Responder};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -294,7 +294,7 @@ impl ElizaAgent {
         tool_name: &str,
         params_json: &str,
     ) -> Result<String> {
-        use rmcp::model::CallToolRequestParam;
+        use rmcp::model::CallToolRequestParams;
 
         // Parse params JSON
         let params = serde_json::from_str::<serde_json::Value>(params_json)
@@ -308,10 +308,10 @@ impl ElizaAgent {
 
             // Call the tool
             let tool_result = mcp_client
-                .call_tool(CallToolRequestParam {
-                    name: tool_name.into(),
-                    arguments: params_obj,
-                })
+                .call_tool(
+                    CallToolRequestParams::new(tool_name)
+                        .with_arguments(params_obj.unwrap_or_default()),
+                )
                 .await?;
 
             tracing::debug!("Tool call result: {:?}", tool_result);
@@ -368,7 +368,8 @@ fn parse_tool_call(input: &str) -> Option<(String, String, String)> {
 
 impl ConnectTo<Client> for ElizaAgent {
     async fn connect_to(self, client: impl ConnectTo<Agent>) -> Result<(), sacp::Error> {
-        Agent.builder()
+        Agent
+            .builder()
             .name("elizacp")
             .on_receive_request(
                 async |initialize: InitializeRequest, responder, _cx| {

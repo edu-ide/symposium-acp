@@ -6,7 +6,7 @@
 //! 3. Messages flow correctly through the empty conductor to eliza
 //! 4. The full chain works end-to-end
 
-use sacp::{Agent, Client, Conductor, Proxy, ConnectTo};
+use sacp::{Agent, Client, Conductor, ConnectTo, Proxy};
 use sacp_conductor::{ConductorImpl, ProxiesAndAgent};
 use tokio::io::duplex;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};

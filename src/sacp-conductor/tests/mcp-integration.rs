@@ -9,11 +9,11 @@ mod mcp_integration;
 
 use elizacp::ElizaAgent;
 use futures::{SinkExt, StreamExt, channel::mpsc};
+use sacp::Agent;
 use sacp::schema::{
     ContentBlock, InitializeRequest, NewSessionRequest, PromptRequest, ProtocolVersion,
     SessionNotification, TextContent,
 };
-use sacp::Agent;
 use sacp_conductor::{ConductorImpl, McpBridgeMode, ProxiesAndAgent};
 use sacp_test::test_binaries;
 
@@ -53,7 +53,8 @@ async fn run_test_with_mode(
 
     let transport = sacp::ByteStreams::new(editor_out.compat_write(), editor_in.compat());
 
-    sacp::Client.builder()
+    sacp::Client
+        .builder()
         .name("editor-to-connector")
         .with_spawned(|_cx| async move {
             ConductorImpl::new_agent("conductor".to_string(), components, mode)
@@ -77,8 +78,10 @@ async fn test_proxy_provides_mcp_tools_stdio() -> Result<(), sacp::Error> {
         ProxiesAndAgent::new(ElizaAgent::new(true)).proxy(mcp_integration::proxy::ProxyComponent),
         async |connection_to_editor| {
             // Send initialization request
-            let init_response =
-                recv(connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST))).await;
+            let init_response = recv(
+                connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST)),
+            )
+            .await;
 
             assert!(
                 init_response.is_ok(),
@@ -87,9 +90,11 @@ async fn test_proxy_provides_mcp_tools_stdio() -> Result<(), sacp::Error> {
             );
 
             // Send session/new request
-            let session_response =
-                recv(connection_to_editor.send_request(NewSessionRequest::new(std::path::PathBuf::from("/"))))
-                    .await;
+            let session_response = recv(
+                connection_to_editor
+                    .send_request(NewSessionRequest::new(std::path::PathBuf::from("/"))),
+            )
+            .await;
 
             assert!(
                 session_response.is_ok(),
@@ -117,8 +122,10 @@ async fn test_proxy_provides_mcp_tools_http() -> Result<(), sacp::Error> {
         ProxiesAndAgent::new(ElizaAgent::new(true)).proxy(mcp_integration::proxy::ProxyComponent),
         async |connection_to_editor| {
             // Send initialization request
-            let init_response =
-                recv(connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST))).await;
+            let init_response = recv(
+                connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST)),
+            )
+            .await;
 
             assert!(
                 init_response.is_ok(),
@@ -127,9 +134,11 @@ async fn test_proxy_provides_mcp_tools_http() -> Result<(), sacp::Error> {
             );
 
             // Send session/new request
-            let session_response =
-                recv(connection_to_editor.send_request(NewSessionRequest::new(std::path::PathBuf::from("/"))))
-                    .await;
+            let session_response = recv(
+                connection_to_editor
+                    .send_request(NewSessionRequest::new(std::path::PathBuf::from("/"))),
+            )
+            .await;
 
             assert!(
                 session_response.is_ok(),
@@ -180,13 +189,13 @@ async fn test_agent_handles_prompt() -> Result<(), sacp::Error> {
     });
 
     // Run the client
-    let result = sacp::Client.builder()
+    let result = sacp::Client
+        .builder()
         .name("editor-to-connector")
         .on_receive_notification(
             {
                 let mut log_tx = log_tx.clone();
-                async move |notification: SessionNotification,
-                            _cx: sacp::ConnectionTo<Agent>| {
+                async move |notification: SessionNotification, _cx: sacp::ConnectionTo<Agent>| {
                     // Log the notification in debug format
                     log_tx
                         .send(format!("{notification:?}"))
@@ -200,12 +209,18 @@ async fn test_agent_handles_prompt() -> Result<(), sacp::Error> {
             sacp::ByteStreams::new(client_write.compat_write(), client_read.compat()),
             async |connection_to_editor| {
                 // Initialize
-                recv(connection_to_editor.send_request(InitializeRequest::new(ProtocolVersion::LATEST))).await?;
+                recv(
+                    connection_to_editor
+                        .send_request(InitializeRequest::new(ProtocolVersion::LATEST)),
+                )
+                .await?;
 
                 // Create session
-                let session =
-                    recv(connection_to_editor.send_request(NewSessionRequest::new(std::path::PathBuf::from("/"))))
-                        .await?;
+                let session = recv(
+                    connection_to_editor
+                        .send_request(NewSessionRequest::new(std::path::PathBuf::from("/"))),
+                )
+                .await?;
 
                 tracing::debug!(session_id = %session.session_id.0, "Session created");
 
@@ -213,8 +228,9 @@ async fn test_agent_handles_prompt() -> Result<(), sacp::Error> {
                 let prompt_response = recv(connection_to_editor.send_request(PromptRequest::new(
                     session.session_id.clone(),
                     vec![ContentBlock::Text(TextContent::new(
-                        r#"Use tool test::echo with {"message": "Hello from the test!"}"#.to_string(),
-                    ))],
+                            r#"Use tool test::echo with {"message": "Hello from the test!"}"#
+                                .to_string(),
+                        ))],
                 )))
                 .await?;
 

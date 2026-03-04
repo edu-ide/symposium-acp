@@ -1,6 +1,6 @@
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
-use fxhash::FxHashMap;
+use rustc_hash::FxHashMap;
 
 use crate::mcp_server::{McpConnectionTo, McpServerConnect};
 use crate::role;
@@ -10,8 +10,8 @@ use crate::schema::{
 };
 use crate::util::MatchDispatchFrom;
 use crate::{
-    Agent, Channel, ConnectionTo, HandleDispatchFrom, Handled, Dispatch, Responder, Role, ConnectTo,
-    UntypedMessage,
+    Agent, Channel, ConnectTo, ConnectionTo, Dispatch, HandleDispatchFrom, Handled, Responder,
+    Role, UntypedMessage,
 };
 use std::sync::Arc;
 
@@ -72,7 +72,8 @@ where
             let connection_id = connection_id.clone();
             let acp_connection = acp_connection.clone();
 
-            role::mcp::Client.builder()
+            role::mcp::Client
+                .builder()
                 .on_receive_dispatch(
                     async move |message: Dispatch, _mcp_connection| {
                         // Wrap the message in McpOverAcp{Request,Notification} and forward to successor

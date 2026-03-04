@@ -170,7 +170,8 @@ async fn test_bidirectional_communication() {
             });
 
             // Use side_b as client
-            let result = UntypedRole.builder()
+            let result = UntypedRole
+                .builder()
                 .connect_with(side_b_transport, async |cx| -> Result<(), sacp::Error> {
                     let request = PingRequest { value: 10 };
                     let response_future = recv(cx.send_request(request));

@@ -5,7 +5,7 @@ use futures::StreamExt as _;
 use futures::channel::mpsc;
 use futures::channel::oneshot;
 use futures_concurrency::stream::StreamExt as _;
-use fxhash::FxHashMap;
+use rustc_hash::FxHashMap;
 use uuid::Uuid;
 
 use crate::Dispatch;
@@ -150,8 +150,7 @@ pub(super) async fn incoming_protocol_actor<Counterpart: Role>(
                             let id_json = serde_json::to_value(&id).unwrap();
                             if let Some(pending_reply) = pending_replies.remove(&id_json) {
                                 // Route the response through the handler chain
-                                let dispatch =
-                                    dispatch_from_response(id, pending_reply, result);
+                                let dispatch = dispatch_from_response(id, pending_reply, result);
                                 dispatch_dispatch(
                                     counterpart.clone(),
                                     connection,

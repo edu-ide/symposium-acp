@@ -39,7 +39,8 @@ async fn test_elizacp_mcp_tool_call() -> Result<(), sacp::Error> {
     // Create channel to collect session notifications
     let (notification_tx, mut notification_rx) = futures::channel::mpsc::unbounded();
 
-    Client.builder()
+    Client
+        .builder()
         .name("test-client")
         .on_receive_notification(
             {
@@ -63,9 +64,10 @@ async fn test_elizacp_mcp_tool_call() -> Result<(), sacp::Error> {
         })
         .connect_with(transport, async |connection_to_client| {
             // Initialize
-            let _init_response =
-                recv(connection_to_client.send_request(InitializeRequest::new(ProtocolVersion::LATEST)))
-                    .await?;
+            let _init_response = recv(
+                connection_to_client.send_request(InitializeRequest::new(ProtocolVersion::LATEST)),
+            )
+            .await?;
 
             // Create session with an MCP server
             // Use the mcp-echo-server from sacp-test (pre-built binary)

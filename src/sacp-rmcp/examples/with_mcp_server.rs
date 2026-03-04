@@ -58,18 +58,10 @@ impl ExampleMcpServer {
 #[tool_handler]
 impl ServerHandler for ExampleMcpServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            protocol_version: ProtocolVersion::V_2024_11_05,
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            server_info: Implementation {
-                name: "example-mcp-server".to_string(),
-                version: "0.1.0".to_string(),
-                icons: None,
-                title: None,
-                website_url: None,
-            },
-            instructions: Some("A simple example MCP server with an echo tool".to_string()),
-        }
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new("example-mcp-server", "0.1.0"))
+            .with_protocol_version(ProtocolVersion::V_2024_11_05)
+            .with_instructions("A simple example MCP server with an echo tool")
     }
 }
 
@@ -88,7 +80,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Set up the proxy connection with our MCP server
     // ProxyToConductor already has proxy behavior built into its default_message_handler
-    Proxy.builder()
+    Proxy
+        .builder()
         .name("mcp-server-proxy")
         // Register the MCP server as a handler
         .with_mcp_server(mcp_server)

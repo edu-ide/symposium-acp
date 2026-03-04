@@ -8,7 +8,7 @@ use axum::{
 use futures::{SinkExt, StreamExt as _, channel::mpsc, future::Either, stream::Stream};
 use futures_concurrency::future::FutureExt as _;
 use futures_concurrency::stream::StreamExt as _;
-use fxhash::FxHashMap;
+use rustc_hash::FxHashMap;
 use sacp::{BoxFuture, Channel, ConnectTo, jsonrpcmsg::Message, role::mcp};
 use std::{collections::VecDeque, pin::pin, sync::Arc};
 use tokio::net::TcpListener;

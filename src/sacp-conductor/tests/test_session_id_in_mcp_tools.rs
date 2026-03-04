@@ -8,9 +8,9 @@
 //! 5. The tool returns the session_id in its response
 //! 6. We verify the session_ids match
 
-use sacp::{Agent, Client, Conductor, DynConnectTo, Proxy, ConnectTo};
-use sacp::mcp_server::McpServer;
 use sacp::RunWithConnectionTo;
+use sacp::mcp_server::McpServer;
+use sacp::{Agent, Client, Conductor, ConnectTo, DynConnectTo, Proxy};
 use sacp_conductor::{ConductorImpl, ProxiesAndAgent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -55,11 +55,9 @@ struct ProxyWithEchoServer<R: RunWithConnectionTo<Conductor>> {
 impl<R: RunWithConnectionTo<Conductor> + 'static + Send> ConnectTo<Conductor>
     for ProxyWithEchoServer<R>
 {
-    async fn connect_to(
-        self,
-        client: impl ConnectTo<Proxy>,
-    ) -> Result<(), sacp::Error> {
-        sacp::Proxy.builder()
+    async fn connect_to(self, client: impl ConnectTo<Proxy>) -> Result<(), sacp::Error> {
+        sacp::Proxy
+            .builder()
             .name("echo-proxy")
             .with_mcp_server(self.mcp_server)
             .connect_to(client)
@@ -71,10 +69,7 @@ impl<R: RunWithConnectionTo<Conductor> + 'static + Send> ConnectTo<Conductor>
 struct ElizacpAgentComponent;
 
 impl ConnectTo<Client> for ElizacpAgentComponent {
-    async fn connect_to(
-        self,
-        client: impl ConnectTo<Agent>,
-    ) -> Result<(), sacp::Error> {
+    async fn connect_to(self, client: impl ConnectTo<Agent>) -> Result<(), sacp::Error> {
         // Create duplex channels for bidirectional communication
         let (elizacp_write, client_read) = duplex(8192);
         let (client_write, elizacp_read) = duplex(8192);
