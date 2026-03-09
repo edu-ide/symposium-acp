@@ -67,23 +67,32 @@ impl ConnectTo<Client> for AcpHttpAgent {
         let server_future = Box::pin(async move {
             let Channel { mut rx, tx } = channel_for_bridge;
             let http_client = reqwest::Client::new();
+            let sse_ready = std::sync::Arc::new(tokio::sync::Notify::new());
 
             debug!(endpoint = %endpoint, "AcpHttpAgent bridge started");
 
             // Start SSE listener in background
             let tx_sse = tx.clone();
             let endpoint_sse = endpoint.clone();
-            let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+            let sse_ready_clone = sse_ready.clone();
             let sse_handle = tokio::spawn(async move {
-                if let Err(e) = listen_sse(&endpoint_sse, &tx_sse, Some(ready_tx)).await {
+                if let Err(e) = listen_sse(&endpoint_sse, &tx_sse, sse_ready_clone).await {
                     warn!("AcpHttpAgent SSE listener error: {e}");
                 }
             });
 
-            // Wait for SSE connection to be fully established before starting POSTs
-            // This prevents POSTing `initialize` before the server can broadcast the result back over SSE.
-            if let Err(e) = ready_rx.await {
-                warn!("AcpHttpAgent SSE ready wait error (channel dropped): {e}");
+            // Wait briefly for SSE connection — but DO NOT block indefinitely.
+            // If the agent isn't running yet, the POST loop must still start so the
+            // conductor can handle non-agent requests (e.g. `initialize`).
+            // POST requests have their own 50-retry backoff, so they'll succeed
+            // once the agent comes up.
+            debug!("AcpHttpAgent waiting for SSE connection (max 3s)...");
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                sse_ready.notified(),
+            ).await {
+                Ok(()) => debug!("AcpHttpAgent SSE connected, beginning POST loop"),
+                Err(_) => warn!("AcpHttpAgent SSE not ready after 3s — starting POST loop anyway (will retry)"),
             }
 
             // Forward outgoing ACP messages as HTTP POST
@@ -101,7 +110,7 @@ impl ConnectTo<Client> for AcpHttpAgent {
                 debug!(?json, "AcpHttpAgent → POST");
 
                 let mut retries = 0;
-                let max_retries = 10;
+                let max_retries = 50;
                 let mut backoff_ms = 500;
 
                 loop {
@@ -152,7 +161,7 @@ impl ConnectTo<Client> for AcpHttpAgent {
 async fn listen_sse(
     endpoint: &str,
     tx: &futures::channel::mpsc::UnboundedSender<Result<sacp::jsonrpcmsg::Message, sacp::Error>>,
-    mut ready_tx: Option<tokio::sync::oneshot::Sender<()>>,
+    ready: std::sync::Arc<tokio::sync::Notify>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let sse_url = format!("{}/stream", endpoint.trim_end_matches('/'));
     let mut backoff_ms: u64 = 100;
@@ -187,9 +196,9 @@ async fn listen_sse(
         // Connected — reset backoff
         backoff_ms = 100;
         debug!(url = %sse_url, "AcpHttpAgent SSE connected");
-        if let Some(rtx) = ready_tx.take() {
-            let _ = rtx.send(());
-        }
+        
+        // Signal that the SSE stream is connected so POST requests can proceed
+        ready.notify_one();
 
         let mut buffer = String::new();
         let mut resp = resp;
