@@ -41,13 +41,11 @@ use rmcp::{
     ErrorData, ServerHandler,
     handler::server::tool::{schema_for_output, schema_for_type},
     model::{
-        CallToolResult, ListToolsResult, Tool,
-        ListResourcesResult, ReadResourceResult, ReadResourceRequestParams,
-        Resource, RawResource, ResourceContents,
-        ListResourceTemplatesResult, ResourceTemplate, RawResourceTemplate,
-        SubscribeRequestParams, UnsubscribeRequestParams,
-        Prompt, PromptArgument, PromptMessage, PromptMessageRole, PromptMessageContent,
-        GetPromptRequestParams, GetPromptResult, ListPromptsResult,
+        CallToolResult, GetPromptRequestParams, GetPromptResult, ListPromptsResult,
+        ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, Prompt, PromptArgument,
+        PromptMessage, PromptMessageRole, RawResource, RawResourceTemplate,
+        ReadResourceRequestParams, ReadResourceResult, Resource, ResourceContents,
+        ResourceTemplate, SubscribeRequestParams, Tool, UnsubscribeRequestParams,
     },
 };
 use schemars::JsonSchema;
@@ -112,12 +110,18 @@ impl SubscriptionHandle {
 
     /// Get all currently subscribed URIs.
     pub fn subscribed_uris(&self) -> Vec<String> {
-        self.inner.lock().map(|s| s.iter().cloned().collect()).unwrap_or_default()
+        self.inner
+            .lock()
+            .map(|s| s.iter().cloned().collect())
+            .unwrap_or_default()
     }
 
     /// Check if any URI matching a prefix is subscribed.
     pub fn has_subscriptions_with_prefix(&self, prefix: &str) -> bool {
-        self.inner.lock().map(|s| s.iter().any(|u| u.starts_with(prefix))).unwrap_or(false)
+        self.inner
+            .lock()
+            .map(|s| s.iter().any(|u| u.starts_with(prefix)))
+            .unwrap_or(false)
     }
 
     fn insert(&self, uri: String) {
@@ -161,7 +165,10 @@ trait ResourceHandler: Send + Sync {
 
 /// A prompt handler: given arguments, returns prompt messages.
 trait PromptHandler: Send + Sync {
-    fn get<'a>(&'a self, args: Option<serde_json::Map<String, serde_json::Value>>) -> BoxFuture<'a, Result<Vec<PromptMessage>, crate::Error>>;
+    fn get<'a>(
+        &'a self,
+        args: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> BoxFuture<'a, Result<Vec<PromptMessage>, crate::Error>>;
 }
 
 /// A registered tool with its metadata.
@@ -450,10 +457,9 @@ where
             }
         }
 
-        self.data.resource_handlers.insert(
-            uri_str,
-            Arc::new(FnResourceHandler { func: read_fn }),
-        );
+        self.data
+            .resource_handlers
+            .insert(uri_str, Arc::new(FnResourceHandler { func: read_fn }));
         self
     }
 
@@ -477,7 +483,9 @@ where
         let raw = RawResourceTemplate::new(tmpl_str.clone(), name.to_string())
             .with_description(description.to_string())
             .with_mime_type(mime_type.to_string());
-        self.data.template_models.push(ResourceTemplate::new(raw, None));
+        self.data
+            .template_models
+            .push(ResourceTemplate::new(raw, None));
 
         struct FnResourceHandler<F> {
             func: F,
@@ -492,10 +500,9 @@ where
             }
         }
 
-        self.data.template_handlers.insert(
-            tmpl_str,
-            Arc::new(FnResourceHandler { func: read_fn }),
-        );
+        self.data
+            .template_handlers
+            .insert(tmpl_str, Arc::new(FnResourceHandler { func: read_fn }));
         self
     }
 
@@ -518,25 +525,36 @@ where
         Fut: std::future::Future<Output = Result<String, crate::Error>> + Send + 'static,
     {
         let name_str = name.to_string();
-        let args: Vec<PromptArgument> = arguments.iter().map(|(n, d, r)| {
-            PromptArgument::new(*n)
-                .with_description(*d)
-                .with_required(*r)
-        }).collect();
+        let args: Vec<PromptArgument> = arguments
+            .iter()
+            .map(|(n, d, r)| {
+                PromptArgument::new(*n)
+                    .with_description(*d)
+                    .with_required(*r)
+            })
+            .collect();
         let args = if args.is_empty() { None } else { Some(args) };
-        self.data.prompt_models.push(
-            Prompt::new(name_str.clone(), Some(description.to_string()), args)
-        );
+        self.data.prompt_models.push(Prompt::new(
+            name_str.clone(),
+            Some(description.to_string()),
+            args,
+        ));
 
         struct FnPromptHandler<F> {
             func: F,
         }
         impl<F, Fut> PromptHandler for FnPromptHandler<F>
         where
-            F: Fn(Option<serde_json::Map<String, serde_json::Value>>) -> Fut + Send + Sync + 'static,
+            F: Fn(Option<serde_json::Map<String, serde_json::Value>>) -> Fut
+                + Send
+                + Sync
+                + 'static,
             Fut: std::future::Future<Output = Result<String, crate::Error>> + Send + 'static,
         {
-            fn get<'a>(&'a self, args: Option<serde_json::Map<String, serde_json::Value>>) -> BoxFuture<'a, Result<Vec<PromptMessage>, crate::Error>> {
+            fn get<'a>(
+                &'a self,
+                args: Option<serde_json::Map<String, serde_json::Value>>,
+            ) -> BoxFuture<'a, Result<Vec<PromptMessage>, crate::Error>> {
                 Box::pin(async move {
                     let text = ((self).func)(args).await?;
                     Ok(vec![PromptMessage::new_text(PromptMessageRole::User, text)])
@@ -544,10 +562,9 @@ where
             }
         }
 
-        self.data.prompt_handlers.insert(
-            name_str,
-            Arc::new(FnPromptHandler { func: handler }),
-        );
+        self.data
+            .prompt_handlers
+            .insert(name_str, Arc::new(FnPromptHandler { func: handler }));
         self
     }
 
@@ -727,34 +744,42 @@ impl<R: Role> ServerHandler for McpServerConnection<R> {
         // 1. Try static resource handlers first
         if let Some(handler) = self.data.resource_handlers.get(&uri) {
             let text = handler.read(&uri).await.map_err(to_rmcp_error)?;
-            let mime = self.data.resource_models
+            let mime = self
+                .data
+                .resource_models
                 .iter()
                 .find(|r| r.uri == uri)
                 .and_then(|r| r.mime_type.clone())
                 .unwrap_or_else(|| "text/plain".to_string());
-            return Ok(ReadResourceResult::new(vec![ResourceContents::TextResourceContents {
-                uri,
-                mime_type: Some(mime),
-                text,
-                meta: None,
-            }]));
+            return Ok(ReadResourceResult::new(vec![
+                ResourceContents::TextResourceContents {
+                    uri,
+                    mime_type: Some(mime),
+                    text,
+                    meta: None,
+                },
+            ]));
         }
 
         // 2. Try template handlers (simple pattern matching: `{param}` → wildcard)
         for (tmpl, handler) in &self.data.template_handlers {
             if template_matches(tmpl, &uri) {
                 let text = handler.read(&uri).await.map_err(to_rmcp_error)?;
-                let mime = self.data.template_models
+                let mime = self
+                    .data
+                    .template_models
                     .iter()
                     .find(|t| template_matches(&t.uri_template, &uri))
                     .and_then(|t| t.mime_type.clone())
                     .unwrap_or_else(|| "text/plain".to_string());
-                return Ok(ReadResourceResult::new(vec![ResourceContents::TextResourceContents {
-                    uri,
-                    mime_type: Some(mime),
-                    text,
-                    meta: None,
-                }]));
+                return Ok(ReadResourceResult::new(vec![
+                    ResourceContents::TextResourceContents {
+                        uri,
+                        mime_type: Some(mime),
+                        text,
+                        meta: None,
+                    },
+                ]));
             }
         }
 
@@ -799,12 +824,16 @@ impl<R: Role> ServerHandler for McpServerConnection<R> {
         _request: Option<rmcp::model::PaginatedRequestParams>,
         _context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<ListPromptsResult, ErrorData> {
-        Ok(ListPromptsResult::with_all_items(self.data.prompt_models.clone()))
+        Ok(ListPromptsResult::with_all_items(
+            self.data.prompt_models.clone(),
+        ))
     }
 
     async fn get_prompt(
         &self,
-        GetPromptRequestParams { name, arguments, .. }: GetPromptRequestParams,
+        GetPromptRequestParams {
+            name, arguments, ..
+        }: GetPromptRequestParams,
         _context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<GetPromptResult, ErrorData> {
         let Some(handler) = self.data.prompt_handlers.get(&name) else {
@@ -814,12 +843,11 @@ impl<R: Role> ServerHandler for McpServerConnection<R> {
             ));
         };
 
-        let messages = handler
-            .get(arguments)
-            .await
-            .map_err(to_rmcp_error)?;
+        let messages = handler.get(arguments).await.map_err(to_rmcp_error)?;
 
-        let description = self.data.prompt_models
+        let description = self
+            .data
+            .prompt_models
             .iter()
             .find(|p| p.name == name)
             .and_then(|p| p.description.clone());
@@ -832,8 +860,8 @@ impl<R: Role> ServerHandler for McpServerConnection<R> {
     }
 
     fn get_info(&self) -> rmcp::model::ServerInfo {
-        let has_resources = !self.data.resource_models.is_empty()
-            || !self.data.template_models.is_empty();
+        let has_resources =
+            !self.data.resource_models.is_empty() || !self.data.template_models.is_empty();
         let has_prompts = !self.data.prompt_models.is_empty();
 
         let caps = match (has_resources, has_prompts) {

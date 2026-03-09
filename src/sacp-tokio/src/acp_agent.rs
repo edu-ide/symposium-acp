@@ -628,44 +628,46 @@ impl AcpAgentSession {
         let cwd_buf = cwd.as_ref().to_path_buf();
 
         // Channel to extract the ActiveSession from inside connect_with
-        let (session_tx, session_rx) =
-            tokio::sync::oneshot::channel::<Result<sacp::ActiveSession<'static, sacp::Agent>, sacp::Error>>();
+        let (session_tx, session_rx) = tokio::sync::oneshot::channel::<
+            Result<sacp::ActiveSession<'static, sacp::Agent>, sacp::Error>,
+        >();
 
         let connection_task = tokio::spawn(async move {
-            let result = sacp::Client.connect_with(agent, async move |cx| {
-                // Step 1: Initialize the ACP connection (REQUIRED before session creation)
-                cx.send_request(
-                    sacp::schema::InitializeRequest::new(sacp::schema::ProtocolVersion::LATEST),
-                )
-                .block_task()
-                .await?;
-
-                // Step 2: Create a session and extract it
-                let session_result = cx
-                    .build_session(&cwd_buf)
+            let result = sacp::Client
+                .connect_with(agent, async move |cx| {
+                    // Step 1: Initialize the ACP connection (REQUIRED before session creation)
+                    cx.send_request(sacp::schema::InitializeRequest::new(
+                        sacp::schema::ProtocolVersion::LATEST,
+                    ))
                     .block_task()
-                    .start_session()
-                    .await;
+                    .await?;
 
-                match session_result {
-                    Ok(session) => {
-                        // Send the session handle out to the caller
-                        if session_tx.send(Ok(session)).is_err() {
-                            // Caller dropped — nothing to do
-                            return Ok(());
+                    // Step 2: Create a session and extract it
+                    let session_result = cx
+                        .build_session(&cwd_buf)
+                        .block_task()
+                        .start_session()
+                        .await;
+
+                    match session_result {
+                        Ok(session) => {
+                            // Send the session handle out to the caller
+                            if session_tx.send(Ok(session)).is_err() {
+                                // Caller dropped — nothing to do
+                                return Ok(());
+                            }
+                            // Keep this task alive indefinitely so the connection stays open.
+                            // The connection will be terminated when the JoinHandle is aborted.
+                            futures::future::pending::<()>().await;
+                            Ok(())
                         }
-                        // Keep this task alive indefinitely so the connection stays open.
-                        // The connection will be terminated when the JoinHandle is aborted.
-                        futures::future::pending::<()>().await;
-                        Ok(())
+                        Err(e) => {
+                            let _ = session_tx.send(Err(e));
+                            Ok(())
+                        }
                     }
-                    Err(e) => {
-                        let _ = session_tx.send(Err(e));
-                        Ok(())
-                    }
-                }
-            })
-            .await;
+                })
+                .await;
 
             // If we get here, connect_with returned (connection closed or error).
             result
@@ -734,4 +736,3 @@ impl Drop for AcpAgentSession {
         self._connection_task.abort();
     }
 }
-

@@ -96,8 +96,7 @@ impl ConnectTo<Client> for AcpHttpAgent {
                     }
                 };
 
-                let json = serde_json::to_value(&msg)
-                    .map_err(sacp::Error::into_internal_error)?;
+                let json = serde_json::to_value(&msg).map_err(sacp::Error::into_internal_error)?;
 
                 debug!(?json, "AcpHttpAgent → POST");
 
@@ -106,11 +105,7 @@ impl ConnectTo<Client> for AcpHttpAgent {
                 let mut backoff_ms = 500;
 
                 loop {
-                    let resp = http_client
-                        .post(&endpoint)
-                        .json(&json)
-                        .send()
-                        .await;
+                    let resp = http_client.post(&endpoint).json(&json).send().await;
 
                     match resp {
                         Ok(r) if !r.status().is_success() => {
@@ -122,10 +117,16 @@ impl ConnectTo<Client> for AcpHttpAgent {
                         }
                         Err(e) => {
                             if retries >= max_retries {
-                                error!("AcpHttpAgent POST failed after {} retries: {e}", max_retries);
+                                error!(
+                                    "AcpHttpAgent POST failed after {} retries: {e}",
+                                    max_retries
+                                );
                                 break;
                             }
-                            warn!("AcpHttpAgent POST connect failed, retrying in {}ms: {e}", backoff_ms);
+                            warn!(
+                                "AcpHttpAgent POST connect failed, retrying in {}ms: {e}",
+                                backoff_ms
+                            );
                             tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
                             retries += 1;
                             backoff_ms = std::cmp::min(backoff_ms * 2, 5000_u64);
@@ -210,12 +211,24 @@ async fn listen_sse(
                                 if json_str.is_empty() {
                                     continue;
                                 }
+                                // Basic heuristic: if it doesn't start with '{', it's not a JSON-RPC message.
+                                // The node server sends "data: /acp" which is not valid JSON.
+                                if !json_str.starts_with('{') {
+                                    debug!("AcpHttpAgent ignoring non-JSON SSE data: {}", json_str);
+                                    continue;
+                                }
                                 match serde_json::from_str::<sacp::jsonrpcmsg::Message>(json_str) {
                                     Ok(msg) => {
                                         // Diagnostic: check if rawInput exists in raw SSE JSON
-                                        if json_str.contains("tool_call") && json_str.contains("toolCallId") {
+                                        if json_str.contains("tool_call")
+                                            && json_str.contains("toolCallId")
+                                        {
                                             let has_raw = json_str.contains("rawInput");
-                                            eprintln!("[SSE raw] tool_call hasRawInput={} len={}", has_raw, json_str.len());
+                                            eprintln!(
+                                                "[SSE raw] tool_call hasRawInput={} len={}",
+                                                has_raw,
+                                                json_str.len()
+                                            );
                                         }
                                         debug!("AcpHttpAgent ← SSE message");
                                         if tx.unbounded_send(Ok(msg)).is_err() {
@@ -233,11 +246,17 @@ async fn listen_sse(
                 }
                 Ok(None) => {
                     // Stream ended — reconnect
-                    warn!("AcpHttpAgent SSE stream ended, reconnecting in {}ms", backoff_ms);
+                    warn!(
+                        "AcpHttpAgent SSE stream ended, reconnecting in {}ms",
+                        backoff_ms
+                    );
                     break;
                 }
                 Err(e) => {
-                    warn!("AcpHttpAgent SSE read error: {e}, reconnecting in {}ms", backoff_ms);
+                    warn!(
+                        "AcpHttpAgent SSE read error: {e}, reconnecting in {}ms",
+                        backoff_ms
+                    );
                     break;
                 }
             }

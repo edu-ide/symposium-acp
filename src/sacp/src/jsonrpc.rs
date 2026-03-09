@@ -14,7 +14,7 @@ use uuid::Uuid;
 use boxfnonce::SendBoxFnOnce;
 use futures::channel::{mpsc, oneshot};
 use futures::future::{self, BoxFuture, Either};
-use futures::{AsyncRead, AsyncWrite, StreamExt};
+use futures::{AsyncRead, AsyncWrite, FutureExt, StreamExt};
 
 mod dynamic_handler;
 pub(crate) mod handlers;
@@ -1449,6 +1449,44 @@ pub struct ConnectionTo<Counterpart: Role> {
     dynamic_handler_tx: mpsc::UnboundedSender<DynamicHandlerMessage<Counterpart>>,
 }
 
+/// Handle for a background connection spawned via [`ConnectionTo::spawn_connection_managed`].
+///
+/// Cancelling (or dropping) the handle requests shutdown of the spawned
+/// connection future. This is intended for supervisors such as conductors that
+/// need to replace downstream transports at runtime.
+pub struct SpawnedConnectionHandle {
+    cancel_tx: Option<oneshot::Sender<()>>,
+}
+
+impl std::fmt::Debug for SpawnedConnectionHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SpawnedConnectionHandle")
+            .field("cancel_tx", &self.cancel_tx.as_ref().map(|_| "..."))
+            .finish()
+    }
+}
+
+impl SpawnedConnectionHandle {
+    fn new(cancel_tx: oneshot::Sender<()>) -> Self {
+        Self {
+            cancel_tx: Some(cancel_tx),
+        }
+    }
+
+    /// Request cancellation of the spawned connection task.
+    pub fn cancel(&mut self) {
+        if let Some(cancel_tx) = self.cancel_tx.take() {
+            let _ = cancel_tx.send(());
+        }
+    }
+}
+
+impl Drop for SpawnedConnectionHandle {
+    fn drop(&mut self) {
+        self.cancel();
+    }
+}
+
 impl<Counterpart: Role> ConnectionTo<Counterpart> {
     fn new(
         counterpart: Counterpart,
@@ -1565,6 +1603,34 @@ impl<Counterpart: Role> ConnectionTo<Counterpart> {
             builder.into_connection_and_future(transport, |_| std::future::pending());
         Task::new(std::panic::Location::caller(), future).spawn(&self.task_tx)?;
         Ok(connection)
+    }
+
+    /// Spawn a JSON-RPC connection in the background and return both the
+    /// connection and a cancellation handle for the spawned task.
+    #[track_caller]
+    pub fn spawn_connection_managed<R: Role>(
+        &self,
+        builder: Builder<
+            R,
+            impl HandleDispatchFrom<R::Counterpart> + 'static,
+            impl RunWithConnectionTo<R::Counterpart> + 'static,
+        >,
+        transport: impl ConnectTo<R> + 'static,
+    ) -> Result<(ConnectionTo<R::Counterpart>, SpawnedConnectionHandle), crate::Error> {
+        let (connection, future) =
+            builder.into_connection_and_future(transport, |_| std::future::pending());
+        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+        let managed_future = async move {
+            let cancel_future = cancel_rx.map(|_| Ok::<(), crate::Error>(()));
+            futures::pin_mut!(future);
+            futures::pin_mut!(cancel_future);
+            match future::select(future, cancel_future).await {
+                Either::Left((result, _)) => result,
+                Either::Right((_cancelled, _)) => Ok(()),
+            }
+        };
+        Task::new(std::panic::Location::caller(), managed_future).spawn(&self.task_tx)?;
+        Ok((connection, SpawnedConnectionHandle::new(cancel_tx)))
     }
 
     /// Send a request/notification and forward the response appropriately.

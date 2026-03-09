@@ -118,7 +118,7 @@ use futures::{
 };
 use sacp::{
     Agent, BoxFuture, Client, Conductor, ConnectTo, Dispatch, DynConnectTo, Error, JsonRpcMessage,
-    Proxy, Role, RunWithConnectionTo, role::HasPeer, util::MatchDispatch,
+    Proxy, Role, RunWithConnectionTo, SpawnedConnectionHandle, role::HasPeer, util::MatchDispatch,
 };
 use sacp::{
     Builder, ConnectionTo, JsonRpcNotification, JsonRpcRequest, SentRequest, UntypedMessage,
@@ -154,6 +154,7 @@ pub struct ConductorImpl<Host: ConductorHostRole> {
     instantiator: Host::Instantiator,
     mcp_bridge_mode: crate::McpBridgeMode,
     trace_writer: Option<crate::trace::TraceWriter>,
+    agent_swap_rx: Option<mpsc::UnboundedReceiver<DynConnectTo<Client>>>,
 }
 
 impl<Host: ConductorHostRole> ConductorImpl<Host> {
@@ -169,7 +170,29 @@ impl<Host: ConductorHostRole> ConductorImpl<Host> {
             instantiator,
             mcp_bridge_mode,
             trace_writer: None,
+            agent_swap_rx: None,
         }
+    }
+}
+
+/// Control handle that requests runtime replacement of the conductor's final
+/// agent transport.
+#[derive(Clone)]
+pub struct AgentSwapHandle {
+    tx: mpsc::UnboundedSender<DynConnectTo<Client>>,
+}
+
+impl AgentSwapHandle {
+    /// Request that the conductor replace its final agent transport.
+    pub fn swap_dyn_agent(&self, agent: DynConnectTo<Client>) -> Result<(), sacp::Error> {
+        self.tx
+            .unbounded_send(agent)
+            .map_err(sacp::util::internal_error)
+    }
+
+    /// Convenience wrapper to accept any transport implementing `ConnectTo<Client>`.
+    pub fn swap_agent(&self, agent: impl ConnectTo<Client> + 'static) -> Result<(), sacp::Error> {
+        self.swap_dyn_agent(DynConnectTo::new(agent))
     }
 }
 
@@ -181,6 +204,19 @@ impl ConductorImpl<Agent> {
         mcp_bridge_mode: crate::McpBridgeMode,
     ) -> Self {
         ConductorImpl::new(Agent, name, Box::new(instantiator), mcp_bridge_mode)
+    }
+
+    /// Create an agent-mode conductor together with a runtime swap handle for
+    /// replacing the final agent transport after initialization.
+    pub fn new_agent_with_swap_handle(
+        name: impl ToString,
+        instantiator: impl InstantiateProxiesAndAgent + 'static,
+        mcp_bridge_mode: crate::McpBridgeMode,
+    ) -> (Self, AgentSwapHandle) {
+        let (tx, rx) = mpsc::unbounded::<DynConnectTo<Client>>();
+        let mut conductor = Self::new_agent(name, instantiator, mcp_bridge_mode);
+        conductor.agent_swap_rx = Some(rx);
+        (conductor, AgentSwapHandle { tx })
     }
 }
 
@@ -242,6 +278,10 @@ impl<Host: ConductorHostRole> ConductorImpl<Host> {
             conductor_rx,
             conductor_tx: conductor_tx.clone(),
             instantiator: Some(self.instantiator),
+            agent_swap_rx: self.agent_swap_rx,
+            pending_agent_component: None,
+            last_initialize_request: None,
+            active_agent_handle: None,
             bridge_listeners: Default::default(),
             bridge_connections: Default::default(),
             mcp_bridge_mode: self.mcp_bridge_mode,
@@ -344,6 +384,18 @@ where
     /// Set to None after components are instantiated.
     instantiator: Option<Host::Instantiator>,
 
+    /// Optional runtime swap receiver (agent mode only).
+    agent_swap_rx: Option<mpsc::UnboundedReceiver<DynConnectTo<Client>>>,
+
+    /// Replacement agent transport requested before initialization completed.
+    pending_agent_component: Option<DynConnectTo<Client>>,
+
+    /// Cached initialize request used to bootstrap replacement agents.
+    last_initialize_request: Option<InitializeRequest>,
+
+    /// Handle for the currently spawned final agent connection.
+    active_agent_handle: Option<SpawnedConnectionHandle>,
+
     /// The chain of proxies before the agent (if any).
     ///
     /// Populated lazily when the first Initialize request is received.
@@ -377,9 +429,30 @@ where
 
         // This is the "central actor" of the conductor. Most other things forward messages
         // via `conductor_tx` into this loop. This lets us serialize the conductor's activity.
-        while let Some(message) = self.conductor_rx.next().await {
-            self.handle_conductor_message(connection.clone(), message)
-                .await?;
+        loop {
+            if self.agent_swap_rx.is_some() {
+                let swap = {
+                    let rx = self.agent_swap_rx.as_mut().expect("checked is_some");
+                    rx.next()
+                };
+                tokio::select! {
+                    maybe_message = self.conductor_rx.next() => {
+                        let Some(message) = maybe_message else { break; };
+                        self.handle_conductor_message(connection.clone(), message).await?;
+                    }
+                    maybe_agent = swap => {
+                        if let Some(agent_component) = maybe_agent {
+                            Host::handle_agent_swap(&mut self, connection.clone(), agent_component).await?;
+                        }
+                    }
+                }
+            } else {
+                let Some(message) = self.conductor_rx.next().await else {
+                    break;
+                };
+                self.handle_conductor_message(connection.clone(), message)
+                    .await?;
+            }
         }
         Ok(())
     }
@@ -988,6 +1061,68 @@ where
     }
 }
 
+impl ConductorResponder<Agent> {
+    fn spawn_agent_connection(
+        &mut self,
+        client_connection: &ConnectionTo<Client>,
+        agent_component: DynConnectTo<Client>,
+    ) -> Result<(ConnectionTo<Agent>, SpawnedConnectionHandle), sacp::Error> {
+        debug!(?agent_component, "spawning/replacing agent");
+        let (connection_to_agent, handle) = client_connection.spawn_connection_managed(
+            Client
+                .builder()
+                .name("conductor-to-agent")
+                .on_receive_dispatch(
+                    {
+                        let mut conductor_tx = self.conductor_tx.clone();
+                        async move |dispatch: Dispatch, _cx| {
+                            conductor_tx
+                                .send(ConductorMessage::RightToLeft {
+                                    source_component_index: SourceComponentIndex::Successor,
+                                    message: dispatch,
+                                })
+                                .await
+                                .map_err(sacp::util::internal_error)
+                        }
+                    },
+                    sacp::on_receive_dispatch!(),
+                ),
+            agent_component,
+        )?;
+        Ok((connection_to_agent, handle))
+    }
+
+    async fn handle_agent_swap(
+        &mut self,
+        client_connection: ConnectionTo<Client>,
+        agent_component: DynConnectTo<Client>,
+    ) -> Result<(), sacp::Error> {
+        if self.instantiator.is_some() {
+            debug!("agent swap requested before initialize; deferring until initialize");
+            self.pending_agent_component = Some(agent_component);
+            return Ok(());
+        }
+
+        debug!("runtime agent swap requested");
+        let (connection_to_agent, new_handle) =
+            self.spawn_agent_connection(&client_connection, agent_component)?;
+
+        if let Some(init_req) = self.last_initialize_request.clone() {
+            connection_to_agent
+                .send_request(init_req)
+                .block_task()
+                .await?;
+        }
+
+        if let Some(mut old_handle) = self.active_agent_handle.take() {
+            old_handle.cancel();
+        }
+        self.active_agent_handle = Some(new_handle);
+        self.successor = Arc::new(connection_to_agent);
+        Ok(())
+    }
+}
+
 /// Identifies a component in the conductor's chain for tracing purposes.
 ///
 /// Used to track message sources and destinations through the proxy chain.
@@ -1337,6 +1472,13 @@ pub trait ConductorHostRole: Role<Counterpart: HasPeer<Client>> {
         connection: ConnectionTo<Self::Counterpart>,
         conductor_tx: &mut mpsc::Sender<ConductorMessage>,
     ) -> impl Future<Output = Result<Handled<Dispatch>, sacp::Error>> + Send;
+
+    /// Optional runtime replacement of the final agent transport.
+    fn handle_agent_swap(
+        responder: &mut ConductorResponder<Self>,
+        connection: ConnectionTo<Self::Counterpart>,
+        agent_component: DynConnectTo<Client>,
+    ) -> impl Future<Output = Result<(), sacp::Error>> + Send;
 }
 
 /// Conductor acting as an agent
@@ -1377,31 +1519,14 @@ impl ConductorHostRole for Agent {
             .instantiate_proxies_and_agent(init_request)
             .await?;
 
-        // Spawn the agent component
-        debug!(?agent_component, "spawning agent");
-
-        let connection_to_agent = client_connection.spawn_connection(
-            Client
-                .builder()
-                .name("conductor-to-agent")
-                // Intercept agent-to-client messages from the agent.
-                .on_receive_dispatch(
-                    {
-                        let mut conductor_tx = responder.conductor_tx.clone();
-                        async move |dispatch: Dispatch, _cx| {
-                            conductor_tx
-                                .send(ConductorMessage::RightToLeft {
-                                    source_component_index: SourceComponentIndex::Successor,
-                                    message: dispatch,
-                                })
-                                .await
-                                .map_err(sacp::util::internal_error)
-                        }
-                    },
-                    sacp::on_receive_dispatch!(),
-                ),
-            agent_component,
-        )?;
+        let agent_component = responder
+            .pending_agent_component
+            .take()
+            .unwrap_or(agent_component);
+        responder.last_initialize_request = Some(modified_req.clone());
+        let (connection_to_agent, handle) =
+            responder.spawn_agent_connection(&client_connection, agent_component)?;
+        responder.active_agent_handle = Some(handle);
         responder.successor = Arc::new(connection_to_agent);
 
         // Spawn the proxy components
@@ -1434,6 +1559,16 @@ impl ConductorHostRole for Agent {
             })
             .await
             .done()
+    }
+
+    async fn handle_agent_swap(
+        responder: &mut ConductorResponder<Self>,
+        connection: ConnectionTo<Self::Counterpart>,
+        agent_component: DynConnectTo<Client>,
+    ) -> Result<(), sacp::Error> {
+        responder
+            .handle_agent_swap(connection, agent_component)
+            .await
     }
 }
 
@@ -1525,6 +1660,16 @@ impl ConductorHostRole for Proxy {
             })
             .await
             .done()
+    }
+
+    async fn handle_agent_swap(
+        _responder: &mut ConductorResponder<Self>,
+        _connection: ConnectionTo<Self::Counterpart>,
+        _agent_component: DynConnectTo<Client>,
+    ) -> Result<(), sacp::Error> {
+        Err(sacp::util::internal_error(
+            "runtime agent swap is only supported in agent mode",
+        ))
     }
 }
 
