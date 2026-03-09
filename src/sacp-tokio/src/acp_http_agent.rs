@@ -67,33 +67,19 @@ impl ConnectTo<Client> for AcpHttpAgent {
         let server_future = Box::pin(async move {
             let Channel { mut rx, tx } = channel_for_bridge;
             let http_client = reqwest::Client::new();
-            let sse_ready = std::sync::Arc::new(tokio::sync::Notify::new());
 
             debug!(endpoint = %endpoint, "AcpHttpAgent bridge started");
 
-            // Start SSE listener in background
+            // SSE listener runs in background — POST loop starts immediately.
+            // No gate: if agent isn't ready, POST retries handle it (50x backoff).
+            // This ensures conductor can process `initialize` without waiting for agent.
             let tx_sse = tx.clone();
             let endpoint_sse = endpoint.clone();
-            let sse_ready_clone = sse_ready.clone();
-            let sse_handle = tokio::spawn(async move {
-                if let Err(e) = listen_sse(&endpoint_sse, &tx_sse, sse_ready_clone).await {
+            let _sse_handle = tokio::spawn(async move {
+                if let Err(e) = listen_sse(&endpoint_sse, &tx_sse).await {
                     warn!("AcpHttpAgent SSE listener error: {e}");
                 }
             });
-
-            // Wait briefly for SSE connection — but DO NOT block indefinitely.
-            // If the agent isn't running yet, the POST loop must still start so the
-            // conductor can handle non-agent requests (e.g. `initialize`).
-            // POST requests have their own 50-retry backoff, so they'll succeed
-            // once the agent comes up.
-            debug!("AcpHttpAgent waiting for SSE connection (max 3s)...");
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(3),
-                sse_ready.notified(),
-            ).await {
-                Ok(()) => debug!("AcpHttpAgent SSE connected, beginning POST loop"),
-                Err(_) => warn!("AcpHttpAgent SSE not ready after 3s — starting POST loop anyway (will retry)"),
-            }
 
             // Forward outgoing ACP messages as HTTP POST
             while let Some(msg_result) = rx.next().await {
@@ -105,7 +91,15 @@ impl ConnectTo<Client> for AcpHttpAgent {
                     }
                 };
 
+                // Conductor-level methods are handled by the proxy chain itself.
+                // Do NOT forward them to the agent — if the agent is down, POST
+                // retry (50×500ms-5s) blocks the entire response pipeline.
                 let json = serde_json::to_value(&msg).map_err(sacp::Error::into_internal_error)?;
+                let method = json.get("method").and_then(|m| m.as_str()).unwrap_or("");
+                if method == "initialize" || method == "session/new" {
+                    debug!(method, "AcpHttpAgent skipping conductor-level method (not forwarding to agent)");
+                    continue;
+                }
 
                 debug!(?json, "AcpHttpAgent → POST");
 
@@ -144,7 +138,7 @@ impl ConnectTo<Client> for AcpHttpAgent {
                 }
             }
 
-            sse_handle.abort();
+            _sse_handle.abort();
             debug!("AcpHttpAgent bridge shut down");
             Ok(())
         });
@@ -161,7 +155,6 @@ impl ConnectTo<Client> for AcpHttpAgent {
 async fn listen_sse(
     endpoint: &str,
     tx: &futures::channel::mpsc::UnboundedSender<Result<sacp::jsonrpcmsg::Message, sacp::Error>>,
-    ready: std::sync::Arc<tokio::sync::Notify>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let sse_url = format!("{}/stream", endpoint.trim_end_matches('/'));
     let mut backoff_ms: u64 = 100;
@@ -196,9 +189,6 @@ async fn listen_sse(
         // Connected — reset backoff
         backoff_ms = 100;
         debug!(url = %sse_url, "AcpHttpAgent SSE connected");
-        
-        // Signal that the SSE stream is connected so POST requests can proceed
-        ready.notify_one();
 
         let mut buffer = String::new();
         let mut resp = resp;
