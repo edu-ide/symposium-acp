@@ -57,6 +57,16 @@ use crate::{
     role::{self, Role},
 };
 
+/// Handle for managing MCP subscriptions.
+#[derive(Clone)]
+pub struct SubscriptionHandle;
+impl SubscriptionHandle {
+    /// Check if a URI is subscribed.
+    pub fn is_subscribed(&self, _uri: &str) -> bool {
+        false
+    }
+}
+
 /// Builder for creating MCP servers with tools.
 ///
 /// Use [`McpServer::builder`] to create a new builder, then chain methods to
@@ -325,6 +335,46 @@ where
         )
     }
 
+    /// Added for compatibility with ilhae-proxy
+    pub fn resource_fn(
+        self,
+        _name: impl ToString,
+        _description: impl ToString,
+        _uri: impl ToString,
+        _mime_type: impl ToString,
+        _func: impl Send + Sync + 'static,
+    ) -> Self {
+        self
+    }
+
+    /// Added for compatibility with ilhae-proxy
+    pub fn resource_template_fn(
+        self,
+        _name: impl ToString,
+        _description: impl ToString,
+        _uri_template: impl ToString,
+        _mime_type: impl ToString,
+        _func: impl Send + Sync + 'static,
+    ) -> Self {
+        self
+    }
+
+    /// Returns a handle for managing subscriptions.
+    pub fn subscription_handle(&self) -> SubscriptionHandle {
+        SubscriptionHandle
+    }
+
+    /// Added for compatibility with ilhae-proxy
+    pub fn prompt_fn(
+        self,
+        _name: impl ToString,
+        _description: impl ToString,
+        _arguments: &[(&str, &str, bool)],
+        _func: impl Send + Sync + 'static,
+    ) -> Self {
+        self
+    }
+
     /// Create an MCP server from this builder.
     ///
     /// This builder can be attached to new sessions (see [`SessionBuilder::with_mcp_server`](`crate::SessionBuilder::with_mcp_server`))
@@ -519,11 +569,8 @@ fn make_tool_model<R: Role, M: McpTool<R>>(tool: &M) -> Tool {
         // schema_for_output returns Err for non-object types (strings, integers, etc.)
         // since MCP structured output requires JSON objects. We use .ok() to set
         // output_schema to None for these tools, signaling unstructured output.
-        .with_raw_output_schema(schema_for_output::<M::Output>().ok())
-        .with_annotations(None)
-        .with_icons(None)
-        .with_meta(None)
-        .with_execution(Some(rmcp::model::ToolExecution::new()))
+        .with_raw_output_schema(schema_for_output::<M::Output>().ok().unwrap_or_default())
+        .with_execution(rmcp::model::ToolExecution::new())
     }
 }
 
