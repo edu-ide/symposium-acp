@@ -65,6 +65,8 @@ use crate::{
     role::{self, Role},
 };
 
+/// Handle for managing MCP subscriptions.
+#[derive(Clone)]
 /// Builder for creating MCP servers with tools.
 ///
 /// Use [`McpServer::builder`] to create a new builder, then chain methods to
