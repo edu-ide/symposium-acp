@@ -47,8 +47,8 @@ use rmcp::{
         ReadResourceRequestParams, ReadResourceResult, Resource, ResourceContents,
         ResourceTemplate, SubscribeRequestParams, Tool, UnsubscribeRequestParams,
     },
+    schemars::JsonSchema,
 };
-use schemars::JsonSchema;
 use serde::{Serialize, de::DeserializeOwned};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
@@ -914,6 +914,11 @@ fn make_tool_model<R: Role, M: McpTool<R>>(tool: &M) -> Tool {
         schema_for_type::<M::Input>(),
     )
     .with_execution(rmcp::model::ToolExecution::new());
+
+    if let Some(title) = tool.title() {
+        t = t.with_title(title);
+    }
+
     // schema_for_output returns Err for non-object types (strings, integers, etc.)
     // since MCP structured output requires JSON objects. We use .ok() to set
     // output_schema to None for these tools, signaling unstructured output.

@@ -1,11 +1,11 @@
 //! MCP tool trait for defining tools.
 
-use schemars::JsonSchema;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::role::Role;
 
 use super::McpConnectionTo;
+use rmcp::schemars::JsonSchema;
 
 /// Trait for defining MCP tools.
 ///
