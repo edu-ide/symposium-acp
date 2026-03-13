@@ -128,7 +128,7 @@ impl JsonRpcMessage for AgentRequest {
             AgentRequest::TerminalOutputRequest(_) => "terminal/output",
             AgentRequest::ReleaseTerminalRequest(_) => "terminal/release",
             AgentRequest::WaitForTerminalExitRequest(_) => "terminal/wait_for_exit",
-            AgentRequest::KillTerminalCommandRequest(_) => "terminal/kill",
+            AgentRequest::KillTerminalRequest(_) => "terminal/kill",
             AgentRequest::ExtMethodRequest(ext) => &ext.method,
             _ => "_unknown",
         }
@@ -151,7 +151,7 @@ impl JsonRpcMessage for AgentRequest {
             "terminal/wait_for_exit" => {
                 json_cast(params).map(AgentRequest::WaitForTerminalExitRequest)
             }
-            "terminal/kill" => json_cast(params).map(AgentRequest::KillTerminalCommandRequest),
+            "terminal/kill" => json_cast(params).map(AgentRequest::KillTerminalRequest),
             _ => {
                 // Check for extension methods (prefixed with underscore)
                 if let Some(custom_method) = method.strip_prefix('_') {
