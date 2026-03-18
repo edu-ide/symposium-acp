@@ -441,6 +441,16 @@ fn should_retry_with_blocking_send(stream_text: &str) -> bool {
         || lower.contains("invalid content-type")
 }
 
+/// Check if an A2A event's metadata indicates it is a "thought" event
+/// from gemini-cli's coderAgent (metadata.coderAgent.kind == "thought").
+fn is_thought_event(metadata: Option<&serde_json::Map<String, Value>>) -> bool {
+    metadata
+        .and_then(|m| m.get("coderAgent"))
+        .and_then(|ca| ca.get("kind"))
+        .and_then(|k| k.as_str())
+        == Some("thought")
+}
+
 fn is_noise_status_text(text: &str) -> bool {
     let lower = text.trim().to_ascii_lowercase();
     lower.starts_with("starting team mission:")
@@ -861,6 +871,15 @@ async fn collect_stream_response(
     while let Some(event) = rx.recv().await {
         match event {
             Ok(StreamEvent::StatusUpdate(su)) => {
+                // Skip thought events — gemini-cli sends thinking content as
+                // coderAgent.kind == "thought" which should not be in response text.
+                let meta_map = su.metadata.as_ref().and_then(|v| v.as_object());
+                if is_thought_event(meta_map) {
+                    if let Some(meta) = &su.metadata {
+                        collect_events_from_value(meta, &mut events, "statusUpdate", 0);
+                    }
+                    continue;
+                }
                 if let Some(msg) = &su.status.message {
                     let text = normalize_text(&extract_text_from_parts(&msg.parts));
                     if !text.is_empty() {
