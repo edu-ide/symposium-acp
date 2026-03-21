@@ -47,7 +47,7 @@ futures-concurrency = "7.6.3"
 elizacp = { path = "../elizacp" }
 expect-test.workspace = true
 rmcp = { workspace = true, features = ["client", "server", "transport-io", "transport-child-process"] }
-schemars.workspace = true
+schemars = "1.2"
 sacp-test = { path = "../sacp-test" }
 sacp-tokio = { path = "../sacp-tokio" }
 yopo = { path = "../yopo" }

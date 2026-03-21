@@ -2,11 +2,11 @@ use serde::Serialize;
 
 use crate::jsonrpc::{JsonRpcMessage, JsonRpcRequest, JsonRpcResponse};
 use crate::schema::{
-    CreateTerminalRequest, CreateTerminalResponse, KillTerminalRequest,
-    KillTerminalResponse, ReadTextFileRequest, ReadTextFileResponse, ReleaseTerminalRequest,
-    ReleaseTerminalResponse, RequestPermissionRequest, RequestPermissionResponse,
-    TerminalOutputRequest, TerminalOutputResponse, WaitForTerminalExitRequest,
-    WaitForTerminalExitResponse, WriteTextFileRequest, WriteTextFileResponse,
+    CreateTerminalRequest, CreateTerminalResponse, ReadTextFileRequest, ReadTextFileResponse,
+    ReleaseTerminalRequest, ReleaseTerminalResponse, RequestPermissionRequest,
+    RequestPermissionResponse, TerminalOutputRequest, TerminalOutputResponse,
+    WaitForTerminalExitRequest, WaitForTerminalExitResponse, WriteTextFileRequest,
+    WriteTextFileResponse,
 };
 use crate::util::json_cast;
 
@@ -291,47 +291,6 @@ impl JsonRpcRequest for WaitForTerminalExitRequest {
 }
 
 impl JsonRpcResponse for WaitForTerminalExitResponse {
-    fn into_json(self, _method: &str) -> Result<serde_json::Value, crate::Error> {
-        serde_json::to_value(self).map_err(crate::Error::into_internal_error)
-    }
-
-    fn from_value(_method: &str, value: serde_json::Value) -> Result<Self, crate::Error> {
-        json_cast(&value)
-    }
-}
-
-// ============================================================================
-// KillTerminalRequest
-// ============================================================================
-
-const METHOD_KILL_TERMINAL: &str = "terminal/kill";
-
-impl JsonRpcMessage for KillTerminalRequest {
-    fn matches_method(method: &str) -> bool {
-        method == METHOD_KILL_TERMINAL
-    }
-
-    fn method(&self) -> &str {
-        METHOD_KILL_TERMINAL
-    }
-
-    fn to_untyped_message(&self) -> Result<crate::UntypedMessage, crate::Error> {
-        crate::UntypedMessage::new(self.method(), self)
-    }
-
-    fn parse_message(method: &str, params: &impl Serialize) -> Result<Self, crate::Error> {
-        if method != METHOD_KILL_TERMINAL {
-            return Err(crate::Error::method_not_found());
-        }
-        json_cast(params)
-    }
-}
-
-impl JsonRpcRequest for KillTerminalRequest {
-    type Response = KillTerminalResponse;
-}
-
-impl JsonRpcResponse for KillTerminalResponse {
     fn into_json(self, _method: &str) -> Result<serde_json::Value, crate::Error> {
         serde_json::to_value(self).map_err(crate::Error::into_internal_error)
     }

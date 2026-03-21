@@ -97,7 +97,10 @@ impl ConnectTo<Client> for AcpHttpAgent {
                 let json = serde_json::to_value(&msg).map_err(sacp::Error::into_internal_error)?;
                 let method = json.get("method").and_then(|m| m.as_str()).unwrap_or("");
                 if method == "initialize" || method == "session/new" {
-                    debug!(method, "AcpHttpAgent skipping conductor-level method (not forwarding to agent)");
+                    debug!(
+                        method,
+                        "AcpHttpAgent skipping conductor-level method (not forwarding to agent)"
+                    );
                     continue;
                 }
 

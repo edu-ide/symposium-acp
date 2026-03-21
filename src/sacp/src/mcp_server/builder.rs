@@ -137,6 +137,7 @@ impl SubscriptionHandle {
     }
 }
 
+#[derive(Clone)]
 struct McpServerData<Counterpart: Role> {
     instructions: Option<String>,
     tool_models: Vec<rmcp::model::Tool>,
@@ -172,6 +173,7 @@ trait PromptHandler: Send + Sync {
 }
 
 /// A registered tool with its metadata.
+#[derive(Clone)]
 struct RegisteredTool<Counterpart: Role> {
     tool: Arc<dyn ErasedMcpTool<Counterpart>>,
     /// Whether this tool returns structured output (i.e., has an output_schema).
